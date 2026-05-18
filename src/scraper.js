@@ -10,7 +10,7 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
 
-const BASE_URL = 'https://www.discudemy.com';
+const BASE_URL = 'https://www.couponami.com';
 const ALL_COURSES_URL = `${BASE_URL}/all`;
 const POSTED_FILE = path.join(__dirname, '..', 'data', 'posted.json');
 
