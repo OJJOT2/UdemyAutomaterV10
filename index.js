@@ -102,8 +102,26 @@ async function runScrapePipeline(ctx = null, pagesToScrape = 1, category = null)
         // For manual scrapes remove course limit; automated runs use env var
         const maxLimit = ctx ? 9999 : null;
 
-        // 1. Scrape
-        const courses = await scraper.scrapeCourses(maxLimit, pagesToScrape, resolvedCategory);
+        // 1. Scrape & Stream directly to Telegram
+        let sentCount = 0;
+        const courses = await scraper.scrapeCourses(
+            maxLimit, 
+            pagesToScrape, 
+            resolvedCategory,
+            async (courseData) => {
+                try {
+                    await telegram.sendRawPreview(
+                        courseData,
+                        async (data) => gemini.generatePost(data),
+                        (slug) => scraper.markAsPosted(slug)
+                    );
+                    sentCount++;
+                    await new Promise((r) => setTimeout(r, 1000));
+                } catch (err) {
+                    console.error(`[Pipeline] Error streaming "${courseData.title}":`, err.message);
+                }
+            }
+        );
 
         if (courses.length === 0) {
             console.log('[Pipeline] No new courses found.');
@@ -116,23 +134,7 @@ async function runScrapePipeline(ctx = null, pagesToScrape = 1, category = null)
         // Cache today's courses for the 4 PM deadline job
         todayCourses = courses;
 
-        console.log(`[Pipeline] Processing ${courses.length} new courses...`);
-
-        // 2. Send each course for admin review
-        for (const course of courses) {
-            try {
-                await telegram.sendRawPreview(
-                    course,
-                    async (courseData) => gemini.generatePost(courseData),
-                    (slug)            => scraper.markAsPosted(slug)
-                );
-                await new Promise((r) => setTimeout(r, 1000));
-            } catch (err) {
-                console.error(`[Pipeline] Error processing "${course.title}":`, err.message);
-            }
-        }
-
-        console.log('[Pipeline] All courses sent for admin approval.');
+        console.log(`[Pipeline] All ${sentCount} courses sent for admin approval.`);
 
         // 3. Inform admin to use /poll when finished
         if (!ctx) {

@@ -188,8 +188,8 @@ async function extractUdemyData(udemyUrl) {
 /**
  * Main scrape function — orchestrates the full pipeline.
  */
-async function scrapeCourses(maxCourses, pagesToScrape = 1, category = null) {
-    const limit = maxCourses || parseInt(process.env.MAX_COURSES_PER_RUN, 10) || 5;
+async function scrapeCourses(maxCourses, pagesToScrape = 1, category = null, onCourseScraped = null) {
+    const limit = maxCourses || parseInt(process.env.MAX_COURSES_PER_RUN, 10) || 100;
     const postedSlugs = loadPostedSlugs();
     const results = [];
 
@@ -234,16 +234,26 @@ async function scrapeCourses(maxCourses, pagesToScrape = 1, category = null) {
         // Attempt Udemy direct fetch for rating (with graceful failure)
         const udemyData = await extractUdemyData(udemyUrl);
 
-        results.push({
+        const finalCourseData = {
             title: course.name,
             category: course.category,
             description: detail.description,
             rate: udemyData.rate,
             udemyUrl,
             slug,
-        });
+        };
 
+        results.push(finalCourseData);
         console.log(`[Scraper] ✅ Scraped: ${course.name} [Rating: ${udemyData.rate}]`);
+        
+        // Stream the course directly if a callback is provided
+        if (onCourseScraped) {
+            try {
+                await onCourseScraped(finalCourseData);
+            } catch (cbErr) {
+                console.error(`[Scraper] onCourseScraped callback error for ${course.name}:`, cbErr.message);
+            }
+        }
     }
 
     console.log(`[Scraper] Scrape complete. Found ${results.length} new courses.`);
