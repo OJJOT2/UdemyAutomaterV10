@@ -34,23 +34,25 @@ function initGemini() {
 async function generatePost(course) {
     if (!model) initGemini();
 
-    const prompt = `You are a social media copywriter for an educational Telegram and WhatsApp channel that shares free Udemy courses.
+    const prompt = `You are an expert social media copywriter for an educational Telegram and WhatsApp channel sharing free Udemy courses.
 
-Write a short, engaging promotional post for the following free Udemy course. The post must be written in TWO parts:
-First, write the post in English.
-Second, write the same post in Egyptian Arabic accent underneath it (separated by a visual divider like ➖➖➖➖➖➖).
+Your task is to write a highly engaging, creative promotional post for the course provided below. 
 
-The post must follow these rules for both languages:
-- Use relevant emojis throughout to make it eye-catching
-- Emphasize that the course is 100% FREE for a LIMITED TIME
-- Include the course title prominently and MUST wrap it in asterisks to bold it (e.g. *Course Name*)
-- Mention the category briefly
-- Create urgency (limited time, grab it now, etc.)
-- End with the enrollment link (can be placed at the very bottom once, or at the end of each language section)
-- Be formatted as plain text suitable for both Telegram and WhatsApp (no markdown other than * for bold, no HTML)
-- Do NOT include any placeholders — this must be ready to post immediately
-- Do NOT add hashtags
-- Make the Arabic part sound natural and casual like an Egyptian speaking (e.g. "كورس مجاني لفترة محدودة الحق سجل فيه بسرعة").
+CRITICAL REQUIREMENT: The output MUST be in two sections:
+1. First section: A captivating English post.
+2. Second section: A natural, friendly, and persuasive Egyptian Arabic post (كلام مصري عامي كأنك بتكلم صحابك).
+Separate the two sections with this exact divider: ➖➖➖➖➖➖➖➖
+
+Guidelines for BOTH sections:
+- Be creative and conversational! Do not just spit out a rigid template.
+- Hook the reader immediately and highlight the value of the course.
+- Emphasize strongly that the course is 100% FREE for a LIMITED TIME (create urgency/FOMO).
+- Include the course title prominently and wrap it in asterisks so it bolds (e.g., *Course Name*).
+- Briefly mention the category.
+- Use relevant and fun emojis throughout to make the text pop.
+- Provide the enrollment link clearly at the end of each section (or once at the bottom).
+- Format as plain text suitable for WhatsApp/Telegram (ONLY use * for bold, no other markdown, no HTML, no hashtags).
+- Do NOT include any placeholder text.
 
 Course Details:
 - Title: ${course.title}
