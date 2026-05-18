@@ -41,22 +41,22 @@ const MERGED_CATEGORIES = {
 
 // Poll option labels (order must match the poll sent to Telegram)
 const POLL_OPTIONS = [
-    'Development',
-    'Design & Video',
-    'IT & Software',
-    'Business & Marketing',
-    'Lifestyle & Other',
-    'All Categories',
+    '💻 Development',
+    '🎨 Design & Video',
+    '⚙️ IT & Software',
+    '📈 Business & Marketing',
+    '🧘 Lifestyle & Other',
+    '🌍 All Categories',
 ];
 
 // Maps poll option text → MERGED_CATEGORIES key
 const POLL_OPTION_MAP = {
-    'Development':         '💻 Development',
-    'Design & Video':      '🎨 Design & Video',
-    'IT & Software':       '⚙️ IT & Software',
-    'Business & Marketing':'📈 Business & Marketing',
-    'Lifestyle & Other':   '🧘 Lifestyle & Other',
-    'All Categories':      '🌍 All',
+    '💻 Development':         '💻 Development',
+    '🎨 Design & Video':      '🎨 Design & Video',
+    '⚙️ IT & Software':       '⚙️ IT & Software',
+    '📈 Business & Marketing':'📈 Business & Marketing',
+    '🧘 Lifestyle & Other':   '🧘 Lifestyle & Other',
+    '🌍 All Categories':      '🌍 All',
 };
 
 function getCategoryKeyboard() {
