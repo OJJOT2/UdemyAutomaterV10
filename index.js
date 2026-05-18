@@ -241,6 +241,17 @@ async function main() {
         // Manual /scrape command
         bot._onManualScrape = runScrapePipeline;
 
+        bot._onTestMorning = async (ctx) => {
+            await ctx.reply('🛠️ Triggering 8 AM Morning Scrape flow...');
+            resetDailyCounters();
+            await runScrapePipeline(null, 1, null); 
+        };
+
+        bot._onTestDeadline = async (ctx) => {
+            await ctx.reply('🛠️ Triggering 4 PM Deadline Auto-Post flow...');
+            await handleDeadline();
+        };
+
         // Post-approval counter: incremented by telegram.js on every broadcastPost()
         bot._onPostApproved = () => {
             approvedTodayCount++;

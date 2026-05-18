@@ -95,7 +95,10 @@ function initTelegram(waModule) {
             '/status — Check bot & WhatsApp status\n' +
             '/qr — Re-send WhatsApp QR code\n' +
             '/poll — Send next-day poll now\n' +
-            '/winner — Show current poll winner\n',
+            '/winner — Show current poll winner\n\n' +
+            '🛠️ *Testing Commands*\n' +
+            '/test_morning — Run the 8 AM automated flow\n' +
+            '/test_deadline — Run the 4 PM auto-post flow\n',
             { parse_mode: 'Markdown' }
         );
     });
@@ -168,6 +171,17 @@ function initTelegram(waModule) {
             `📂 Sub-categories: ${subcats.join(', ')}`,
             { parse_mode: 'Markdown' }
         );
+    });
+
+    // Debug commands to trigger cron jobs manually
+    bot.command('test_morning', async (ctx) => {
+        if (!isAdmin(ctx)) return;
+        if (bot._onTestMorning) await bot._onTestMorning(ctx);
+    });
+
+    bot.command('test_deadline', async (ctx) => {
+        if (!isAdmin(ctx)) return;
+        if (bot._onTestDeadline) await bot._onTestDeadline(ctx);
     });
 
     // ── Text Handler for Conversation State ─────────────────────────────────────
