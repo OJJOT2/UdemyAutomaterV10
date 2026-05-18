@@ -11,7 +11,7 @@ const { Telegraf, Markup } = require('telegraf');
 let bot = null;
 let whatsappModule = null; // Injected at runtime to avoid circular deps
 
-// In-memory store for pending approval posts (slug -> post data)
+// In-memory store for pending approval posts (shortId -> post data)
 const pendingPosts = new Map();
 
 // In-memory store for admin conversation state
@@ -138,8 +138,8 @@ function initTelegram(waModule) {
 
     // 1. Generate AI Post
     bot.action(/generate_ai_(.+)/, async (ctx) => {
-        const slug = ctx.match[1];
-        const postData = pendingPosts.get(slug);
+        const shortId = ctx.match[1];
+        const postData = pendingPosts.get(shortId);
         
         if (!postData) {
             return ctx.answerCbQuery('⚠️ Post data expired.', { show_alert: true });
@@ -153,8 +153,8 @@ function initTelegram(waModule) {
             postData.text = aiText; // Update the stored text to the AI version
             
             const keyboard = Markup.inlineKeyboard([
-                Markup.button.callback('✅ Approve & Post', `approve_${slug}`),
-                Markup.button.callback('❌ Reject', `reject_${slug}`),
+                Markup.button.callback('✅ Approve & Post', `approve_${shortId}`),
+                Markup.button.callback('❌ Reject', `reject_${shortId}`),
             ]);
 
             // Clean asterisks to HTML bold for Telegram
@@ -176,25 +176,27 @@ function initTelegram(waModule) {
 
     // 2. Send Directly (Raw text)
     bot.action(/send_direct_(.+)/, async (ctx) => {
-        const slug = ctx.match[1];
+        const shortId = ctx.match[1];
         await ctx.answerCbQuery('Broadcasting raw text...');
-        await broadcastPost(ctx, slug);
+        await broadcastPost(ctx, shortId);
     });
 
     // 3. Approve AI Post
     bot.action(/approve_(.+)/, async (ctx) => {
-        const slug = ctx.match[1];
+        const shortId = ctx.match[1];
         await ctx.answerCbQuery('Approving AI post...');
-        await broadcastPost(ctx, slug);
+        await broadcastPost(ctx, shortId);
     });
 
     // 4. Reject
     bot.action(/reject_(.+)/, async (ctx) => {
-        const slug = ctx.match[1];
+        const shortId = ctx.match[1];
+        const postData = pendingPosts.get(shortId);
+        const title = postData ? postData.course.title : shortId;
         await ctx.answerCbQuery('Rejected.');
-        pendingPosts.delete(slug);
-        await ctx.editMessageText(`❌ Course rejected: ${slug}`);
-        console.log(`[Telegram] ❌ Rejected: ${slug}`);
+        pendingPosts.delete(shortId);
+        await ctx.editMessageText(`❌ Course rejected: ${title}`);
+        console.log(`[Telegram] ❌ Rejected: ${title}`);
     });
 
     // --- Error Handler ---
@@ -209,8 +211,8 @@ function initTelegram(waModule) {
 /**
  * Helper to broadcast the pending post to channels.
  */
-async function broadcastPost(ctx, slug) {
-    const postData = pendingPosts.get(slug);
+async function broadcastPost(ctx, shortId) {
+    const postData = pendingPosts.get(shortId);
     if (!postData) {
         return ctx.editMessageText('⚠️ Post data not found (may have expired). No action taken.');
     }
@@ -218,25 +220,26 @@ async function broadcastPost(ctx, slug) {
     try {
         // Formatted for Telegram
         const telegramText = cleanMarkdownForTelegram(postData.text);
+        const originalSlug = postData.course.slug;
         
         // 1. Post to Telegram Channel
         await sendToChannel(telegramText, postData.course.udemyUrl);
-        console.log(`[Telegram] ✅ Posted to channel: ${slug}`);
+        console.log(`[Telegram] ✅ Posted to channel: ${originalSlug}`);
 
         // 2. Post to WhatsApp (raw text with asterisks)
         if (whatsappModule) {
             try {
                 await whatsappModule.sendToChannel(postData.text);
-                console.log(`[Telegram] ✅ Posted to WhatsApp: ${slug}`);
+                console.log(`[Telegram] ✅ Posted to WhatsApp: ${originalSlug}`);
             } catch (waErr) {
-                console.error(`[Telegram] WhatsApp broadcast failed for ${slug}:`, waErr.message);
+                console.error(`[Telegram] WhatsApp broadcast failed for ${originalSlug}:`, waErr.message);
                 await sendToAdmin(`⚠️ WhatsApp broadcast failed for "${postData.course.title}": ${waErr.message}`);
             }
         }
 
         // 3. Mark as posted
         if (postData.onApprove) {
-            postData.onApprove(slug);
+            postData.onApprove(originalSlug);
         }
 
         // 4. Update the admin message
@@ -245,9 +248,9 @@ async function broadcastPost(ctx, slug) {
             link_preview_options: { url: postData.course.udemyUrl, show_above_text: true }
         });
 
-        pendingPosts.delete(slug);
+        pendingPosts.delete(shortId);
     } catch (err) {
-        console.error(`[Telegram] Error broadcasting ${slug}:`, err.message);
+        console.error(`[Telegram] Error broadcasting ${shortId}:`, err.message);
         await ctx.editMessageText(`❌ Broadcast failed: ${err.message}`);
     }
 }
@@ -300,8 +303,11 @@ async function sendRawPreview(course, onGenerateAI, onApprove) {
 
     const rawText = `📚 *${course.title}*\n📂 Category: ${course.category}\n⭐ Rating: ${course.rate || 'N/A'}\n\n${course.description}\n\n👉 Link: ${course.udemyUrl}`;
 
+    // Generate a short ID for Telegram callback_data limits (<64 bytes)
+    const shortId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+
     // Store post data
-    pendingPosts.set(course.slug, {
+    pendingPosts.set(shortId, {
         course: course,
         text: rawText,
         onGenerateAI,
@@ -309,10 +315,10 @@ async function sendRawPreview(course, onGenerateAI, onApprove) {
     });
 
     const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('🪄 Generate AI Post', `generate_ai_${course.slug}`)],
+        [Markup.button.callback('🪄 Generate AI Post', `generate_ai_${shortId}`)],
         [
-            Markup.button.callback('📤 Send Directly', `send_direct_${course.slug}`),
-            Markup.button.callback('❌ Reject', `reject_${course.slug}`)
+            Markup.button.callback('📤 Send Directly', `send_direct_${shortId}`),
+            Markup.button.callback('❌ Reject', `reject_${shortId}`)
         ]
     ]);
 
