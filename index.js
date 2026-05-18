@@ -68,8 +68,12 @@ async function runScrapePipeline(ctx = null, pagesToScrape = 1, category = null)
     console.log('========================================\n');
 
     try {
+        // If triggered manually, remove the maximum course limit (set to 9999)
+        // Otherwise, use the environment variable limit (for automated daily cron)
+        const maxLimit = ctx ? 9999 : null;
+
         // 1. Scrape new courses
-        const courses = await scraper.scrapeCourses(null, pagesToScrape, category);
+        const courses = await scraper.scrapeCourses(maxLimit, pagesToScrape, category);
 
         if (courses.length === 0) {
             console.log('[Pipeline] No new courses found.');
