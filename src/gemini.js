@@ -36,16 +36,21 @@ async function generatePost(course) {
 
     const prompt = `You are a social media copywriter for an educational Telegram and WhatsApp channel that shares free Udemy courses.
 
-Write a short, engaging promotional post (UNDER 150 words) for the following free Udemy course. The post must:
+Write a short, engaging promotional post for the following free Udemy course. The post must be written in TWO parts:
+First, write the post in English.
+Second, write the same post in Egyptian Arabic accent underneath it (separated by a visual divider like ➖➖➖➖➖➖).
+
+The post must follow these rules for both languages:
 - Use relevant emojis throughout to make it eye-catching
 - Emphasize that the course is 100% FREE for a LIMITED TIME
 - Include the course title prominently and MUST wrap it in asterisks to bold it (e.g. *Course Name*)
 - Mention the category briefly
 - Create urgency (limited time, grab it now, etc.)
-- End with the enrollment link
+- End with the enrollment link (can be placed at the very bottom once, or at the end of each language section)
 - Be formatted as plain text suitable for both Telegram and WhatsApp (no markdown other than * for bold, no HTML)
 - Do NOT include any placeholders — this must be ready to post immediately
 - Do NOT add hashtags
+- Make the Arabic part sound natural and casual like an Egyptian speaking (e.g. "كورس مجاني لفترة محدودة الحق سجل فيه بسرعة").
 
 Course Details:
 - Title: ${course.title}
@@ -96,7 +101,21 @@ ${course.description ? course.description.substring(0, 200) + '...' : ''}
 
 👉 Enroll Now: ${course.udemyUrl}
 
-Don't miss out! 🚀`;
+➖➖➖➖➖➖➖➖
+
+🎓 كورس مجاني الحق بسرعة! 🔥
+
+📚 *${course.title}*
+
+📂 القسم: ${course.category}
+⭐ التقييم: ${course.rate || 'N/A'}
+
+🆓 الكورس ده مجاني 100% لفترة محدودة جداً!
+⏰ الحق سجل فيه قبل ما الكوبون يخلص!
+
+👉 رابط التسجيل: ${course.udemyUrl}
+
+ماتفوتش الفرصة! 🚀`;
 }
 
 module.exports = { initGemini, generatePost };
