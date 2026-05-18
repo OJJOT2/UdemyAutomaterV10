@@ -3,7 +3,7 @@
 // ============================================
 // Handles Telegram bot setup, admin approval flow
 // with inline keyboards, channel posting, and
-// daily polls.
+// daily polls (with winner tracking for smart scraping).
 // ============================================
 
 const { Telegraf, Markup } = require('telegraf');
@@ -17,14 +17,46 @@ const pendingPosts = new Map();
 // In-memory store for admin conversation state
 const adminState = new Map();
 
-// Merged categories from Python script
+// ─── Poll State ────────────────────────────────────────────────────────────────
+// Stores the last sent poll's message_id and the most recent vote counts.
+// Updated via Telegram's `poll` update events (fires when vote totals change).
+const pollState = {
+    messageId: null,       // message_id of the last sent poll
+    chatId: null,          // chat where the poll was sent
+    options: [],           // Array of option texts (in order)
+    voteCounts: [],        // Array of vote counts aligned with options[]
+    winnerCategory: null,  // Resolved MERGED_CATEGORIES key (set when poll closes / at 8 AM)
+};
+
+// ─── Merged Categories ────────────────────────────────────────────────────────
+// Maps poll option labels → sub-category slug arrays for the scraper.
 const MERGED_CATEGORIES = {
     '💻 Development': ['android', 'angularjs', 'bootstrap', 'c', 'cpp', 'csharp', 'css', 'data-structure', 'debug-test', 'development-tools', 'django', 'drupal', 'game-development', 'git', 'html', 'ios', 'java', 'javascript', 'jquery', 'json', 'machine-learning', 'matlab', 'mobile-development-other', 'nodejs', 'php', 'programming-other', 'python', 'r-programming', 'react-redux', 'robotics', 'ruby', 'software', 'system-programming', 'web-development-other', 'wordpress', 'vue'],
     '🎨 Design & Video': ['3d-model', 'after-effects', 'animation', 'graphic-design', 'photography', 'photoshop', 'premiere-pro', 'video-design', 'ux'],
     '⚙️ IT & Software': ['aws', 'hardware', 'hosting', 'linux', 'mac', 'network-security', 'windows', 'windows-server', 'mysql', 'nosql', 'sql', 'ethical-hacking'],
     '📈 Business & Marketing': ['business', 'e-commerce', 'marketing', 'seo', 'social-media', 'office-productivity'],
     '🧘 Lifestyle & Other': ['academic', 'blockchain', 'certification', 'health-fitness', 'languages', 'lifestyle', 'music', 'personal-development'],
-    '🌍 All': ['all']
+    '🌍 All': ['all'],
+};
+
+// Poll option labels (order must match the poll sent to Telegram)
+const POLL_OPTIONS = [
+    'Development',
+    'Design & Video',
+    'IT & Software',
+    'Business & Marketing',
+    'Lifestyle & Other',
+    'All Categories',
+];
+
+// Maps poll option text → MERGED_CATEGORIES key
+const POLL_OPTION_MAP = {
+    'Development':         '💻 Development',
+    'Design & Video':      '🎨 Design & Video',
+    'IT & Software':       '⚙️ IT & Software',
+    'Business & Marketing':'📈 Business & Marketing',
+    'Lifestyle & Other':   '🧘 Lifestyle & Other',
+    'All Categories':      '🌍 All',
 };
 
 function getCategoryKeyboard() {
@@ -36,6 +68,8 @@ function getCategoryKeyboard() {
     res.push(['Cancel']);
     return Markup.keyboard(res).resize();
 }
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
 
 /**
  * Initialize and configure the Telegram bot.
@@ -50,7 +84,7 @@ function initTelegram(waModule) {
     whatsappModule = waModule;
     bot = new Telegraf(process.env.BOT_TOKEN);
 
-    // --- Admin Commands ---
+    // ── Admin Commands ──────────────────────────────────────────────────────────
 
     bot.command('start', (ctx) => {
         if (!isAdmin(ctx)) return;
@@ -59,18 +93,20 @@ function initTelegram(waModule) {
             'Commands:\n' +
             '/scrape — Interactive manual scrape\n' +
             '/status — Check bot & WhatsApp status\n' +
-            '/qr — Re-send WhatsApp QR code\n',
+            '/qr — Re-send WhatsApp QR code\n' +
+            '/poll — Send next-day poll now\n' +
+            '/winner — Show current poll winner\n',
             { parse_mode: 'Markdown' }
         );
     });
 
     bot.command('scrape', async (ctx) => {
         if (!isAdmin(ctx)) return;
-        
+
         // Start conversation
         adminState.set(ctx.from.id, { step: 'ASK_PAGES' });
-        
-        ctx.reply('🔄 Interactive Scrape Started.\n\nHow many pages do you want to scrape? (e.g., 1, 2, 3...)', 
+
+        ctx.reply('🔄 Interactive Scrape Started.\n\nHow many pages do you want to scrape? (e.g., 1, 2, 3...)',
             Markup.keyboard(['1', '2', '3', 'Cancel']).oneTime().resize()
         );
     });
@@ -78,11 +114,13 @@ function initTelegram(waModule) {
     bot.command('status', (ctx) => {
         if (!isAdmin(ctx)) return;
         const waStatus = whatsappModule ? whatsappModule.getStatus() : 'Not initialized';
+        const winner = pollState.winnerCategory || '(no poll yet / no votes)';
         ctx.reply(
             `📊 *Bot Status*\n\n` +
             `🤖 Telegram: ✅ Running\n` +
             `📱 WhatsApp: ${waStatus}\n` +
-            `📅 Last check: ${new Date().toLocaleString('en-US', { timeZone: process.env.TZ || 'Asia/Amman' })}`,
+            `🗳️ Poll Winner: ${winner}\n` +
+            `📅 Last check: ${new Date().toLocaleString('en-US', { timeZone: process.env.TZ || 'Africa/Cairo' })}`,
             { parse_mode: 'Markdown' }
         );
     });
@@ -97,7 +135,42 @@ function initTelegram(waModule) {
         }
     });
 
-    // --- Text Handler for Conversation State ---
+    // Manual poll trigger
+    bot.command('poll', async (ctx) => {
+        if (!isAdmin(ctx)) return;
+        try {
+            await sendDailyPoll();
+            ctx.reply('✅ Poll sent to channel!');
+        } catch (err) {
+            console.error('[Telegram] /poll command failed:', err.message);
+            ctx.reply(
+                `❌ Failed to send poll!\n\n` +
+                `Error: ${err.message}\n\n` +
+                `Common fixes:\n` +
+                `• Make sure the bot is an *admin* in your channel\n` +
+                `• The bot needs \'Post Messages\' permission\n` +
+                `• Check TELEGRAM_CHANNEL_ID in your .env`,
+                { parse_mode: 'Markdown' }
+            );
+        }
+    });
+
+    // Show current poll winner
+    bot.command('winner', (ctx) => {
+        if (!isAdmin(ctx)) return;
+        const winner = resolvePollWinner();
+        if (!winner) {
+            return ctx.reply('🗳️ No poll data available yet. Send a poll first.');
+        }
+        const subcats = MERGED_CATEGORIES[winner] || ['all'];
+        ctx.reply(
+            `🏆 Current Poll Winner: *${winner}*\n` +
+            `📂 Sub-categories: ${subcats.join(', ')}`,
+            { parse_mode: 'Markdown' }
+        );
+    });
+
+    // ── Text Handler for Conversation State ─────────────────────────────────────
     bot.on('text', async (ctx, next) => {
         if (!isAdmin(ctx)) return next();
         const state = adminState.get(ctx.from.id);
@@ -117,7 +190,7 @@ function initTelegram(waModule) {
             }
             state.pages = pages;
             state.step = 'ASK_CATEGORY';
-            
+
             return ctx.reply(`✅ Pages set to ${pages}.\n\nWhich category?`, getCategoryKeyboard());
         }
 
@@ -132,10 +205,10 @@ function initTelegram(waModule) {
             }
 
             const pages = state.pages;
-            
+
             adminState.delete(ctx.from.id);
             ctx.reply(`🚀 Starting batch scrape for ${pages} page(s) across ${categoryList.length} sub-categories...`, Markup.removeKeyboard());
-            
+
             // Trigger actual scrape in index.js
             if (bot._onManualScrape) {
                 try {
@@ -150,30 +223,47 @@ function initTelegram(waModule) {
         return next();
     });
 
-    // --- Inline Button Handlers ---
+    // ── Poll Update Handler ─────────────────────────────────────────────────────
+    // Telegram fires a `poll` update whenever vote totals change (for non-anonymous
+    // polls). For anonymous polls in channels, we get the final snapshot via this event.
+    bot.on('poll', (ctx) => {
+        const p = ctx.poll;
+        if (!p) return;
+
+        console.log('[Telegram] Poll update received, storing vote counts.');
+        pollState.options = p.options.map((o) => o.text);
+        pollState.voteCounts = p.options.map((o) => o.voter_count);
+
+        // Resolve winner immediately on each update
+        const winner = resolvePollWinner();
+        if (winner) {
+            pollState.winnerCategory = winner;
+            console.log(`[Telegram] Poll winner updated: ${winner}`);
+        }
+    });
+
+    // ── Inline Button Handlers ──────────────────────────────────────────────────
 
     // 1. Generate AI Post
     bot.action(/generate_ai_(.+)/, async (ctx) => {
         const shortId = ctx.match[1];
         const postData = pendingPosts.get(shortId);
-        
+
         if (!postData) {
             return ctx.answerCbQuery('⚠️ Post data expired.', { show_alert: true });
         }
 
         await ctx.answerCbQuery('🪄 Generating AI post... please wait.');
-        
+
         try {
-            // Call the callback to generate the post via Gemini
             const aiText = await postData.onGenerateAI(postData.course);
-            postData.text = aiText; // Update the stored text to the AI version
-            
+            postData.text = aiText;
+
             const keyboard = Markup.inlineKeyboard([
                 Markup.button.callback('✅ Approve & Post', `approve_${shortId}`),
                 Markup.button.callback('❌ Reject', `reject_${shortId}`),
             ]);
 
-            // Clean asterisks to HTML bold for Telegram
             const formattedText = cleanMarkdownForTelegram(aiText);
 
             await ctx.editMessageText(
@@ -215,7 +305,7 @@ function initTelegram(waModule) {
         console.log(`[Telegram] ❌ Rejected: ${title}`);
     });
 
-    // --- Error Handler ---
+    // ── Error Handler ───────────────────────────────────────────────────────────
     bot.catch((err) => {
         console.error('[Telegram] Bot error:', err.message);
     });
@@ -224,8 +314,11 @@ function initTelegram(waModule) {
     return bot;
 }
 
+// ─── Broadcast ────────────────────────────────────────────────────────────────
+
 /**
  * Helper to broadcast the pending post to channels.
+ * Also calls _onPostApproved hook (set by index.js) to track approved count.
  */
 async function broadcastPost(ctx, shortId) {
     const postData = pendingPosts.get(shortId);
@@ -234,15 +327,14 @@ async function broadcastPost(ctx, shortId) {
     }
 
     try {
-        // Formatted for Telegram
         const telegramText = cleanMarkdownForTelegram(postData.text);
         const originalSlug = postData.course.slug;
-        
+
         // 1. Post to Telegram Channel
         await sendToChannel(telegramText, postData.course.udemyUrl);
         console.log(`[Telegram] ✅ Posted to channel: ${originalSlug}`);
 
-        // 2. Post to WhatsApp (raw text with asterisks)
+        // 2. Post to WhatsApp
         if (whatsappModule) {
             try {
                 await whatsappModule.sendToChannel(postData.text);
@@ -258,7 +350,12 @@ async function broadcastPost(ctx, shortId) {
             postData.onApprove(originalSlug);
         }
 
-        // 4. Update the admin message
+        // 4. Notify index.js that a post was approved (for deadline counter)
+        if (bot._onPostApproved) {
+            bot._onPostApproved();
+        }
+
+        // 5. Update the admin message
         await ctx.editMessageText(`✅ Posted successfully!\n\n${telegramText}`, {
             parse_mode: 'HTML',
             link_preview_options: { url: postData.course.udemyUrl, show_above_text: true }
@@ -270,6 +367,104 @@ async function broadcastPost(ctx, shortId) {
         await ctx.editMessageText(`❌ Broadcast failed: ${err.message}`);
     }
 }
+
+// ─── Auto-Post ────────────────────────────────────────────────────────────────
+
+/**
+ * Auto-post up to `count` courses directly to the channel WITHOUT admin review.
+ * Used by the 4 PM deadline job.
+ * @param {Array} courses - Array of course objects from the scraper
+ * @param {number} count - Max number to post
+ * @param {Function} onApprove - markAsPosted callback
+ */
+async function autoPostCourses(courses, count, onApprove) {
+    if (!bot) throw new Error('[Telegram] Bot not initialized.');
+    const tz = process.env.TZ || 'Africa/Cairo';
+
+    console.log(`[Telegram] ⏰ Auto-posting up to ${count} courses (deadline reached).`);
+    await sendToAdmin(`⏰ *4 PM Deadline Reached!*\nNo posts were approved today.\nAuto-posting ${Math.min(count, courses.length)} courses now...`);
+
+    let posted = 0;
+    for (const course of courses) {
+        if (posted >= count) break;
+
+        try {
+            const rawText =
+                `📚 *${course.title}*\n` +
+                `📂 Category: ${course.category}\n` +
+                `⭐ Rating: ${course.rate || 'N/A'}\n\n` +
+                `${course.description}\n\n` +
+                `👉 Link: ${course.udemyUrl}`;
+
+            const telegramText = cleanMarkdownForTelegram(rawText);
+
+            // Post to channel
+            await sendToChannel(telegramText, course.udemyUrl);
+
+            // Post to WhatsApp
+            if (whatsappModule) {
+                try {
+                    await whatsappModule.sendToChannel(rawText);
+                } catch (waErr) {
+                    console.error(`[Telegram] WhatsApp auto-post failed for "${course.title}":`, waErr.message);
+                }
+            }
+
+            // Mark as posted
+            if (onApprove) onApprove(course.slug);
+
+            console.log(`[Telegram] ✅ Auto-posted: ${course.title}`);
+            posted++;
+
+            // Small delay between posts
+            await new Promise((r) => setTimeout(r, 2000));
+        } catch (err) {
+            console.error(`[Telegram] Auto-post failed for "${course.title}":`, err.message);
+        }
+    }
+
+    await sendToAdmin(`✅ Auto-posted ${posted} course(s).\nSending next-day poll now...`);
+    console.log(`[Telegram] Auto-post complete. Posted ${posted} course(s).`);
+}
+
+// ─── Poll Helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the winning MERGED_CATEGORIES key from the current pollState.
+ * Returns null if no poll data is available.
+ */
+function resolvePollWinner() {
+    if (!pollState.voteCounts || pollState.voteCounts.length === 0) return null;
+
+    let maxVotes = -1;
+    let winnerIndex = 0;
+    for (let i = 0; i < pollState.voteCounts.length; i++) {
+        if (pollState.voteCounts[i] > maxVotes) {
+            maxVotes = pollState.voteCounts[i];
+            winnerIndex = i;
+        }
+    }
+
+    const winnerLabel = pollState.options[winnerIndex] || POLL_OPTIONS[winnerIndex];
+    return POLL_OPTION_MAP[winnerLabel] || '🌍 All';
+}
+
+/**
+ * Get the winning poll category's subcategory list.
+ * Falls back to ['all'] if no poll data available.
+ */
+function getPollWinnerCategory() {
+    const winner = pollState.winnerCategory || resolvePollWinner();
+    if (!winner) {
+        console.log('[Telegram] No poll winner found, defaulting to All categories.');
+        return ['all'];
+    }
+    const subcats = MERGED_CATEGORIES[winner] || ['all'];
+    console.log(`[Telegram] Poll winner: ${winner} → ${subcats.length} sub-categories`);
+    return subcats;
+}
+
+// ─── Core Bot Functions ───────────────────────────────────────────────────────
 
 /**
  * Start the bot (long polling).
@@ -298,18 +493,13 @@ function isAdmin(ctx) {
  * WhatsApp uses * so we keep it as is for WhatsApp.
  */
 function cleanMarkdownForTelegram(text) {
-    // Escape HTML symbols first to prevent Telegram parse errors
     let clean = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // Convert *bold* to <b>bold</b>
     clean = clean.replace(/\*(.*?)\*/g, '<b>$1</b>');
     return clean;
 }
 
 /**
  * Send a raw course preview to the admin for approval/generation.
- * @param {Object} course - Course data { title, slug, rate, ... }
- * @param {Function} onGenerateAI - Callback to generate AI text
- * @param {Function} onApprove - Callback when approved (receives slug)
  */
 async function sendRawPreview(course, onGenerateAI, onApprove) {
     if (!bot) throw new Error('[Telegram] Bot not initialized.');
@@ -317,12 +507,15 @@ async function sendRawPreview(course, onGenerateAI, onApprove) {
     const adminId = process.env.ADMIN_CHAT_ID;
     if (!adminId) throw new Error('[Telegram] ADMIN_CHAT_ID is not set.');
 
-    const rawText = `📚 *${course.title}*\n📂 Category: ${course.category}\n⭐ Rating: ${course.rate || 'N/A'}\n\n${course.description}\n\n👉 Link: ${course.udemyUrl}`;
+    const rawText =
+        `📚 *${course.title}*\n` +
+        `📂 Category: ${course.category}\n` +
+        `⭐ Rating: ${course.rate || 'N/A'}\n\n` +
+        `${course.description}\n\n` +
+        `👉 Link: ${course.udemyUrl}`;
 
-    // Generate a short ID for Telegram callback_data limits (<64 bytes)
     const shortId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
 
-    // Store post data
     pendingPosts.set(shortId, {
         course: course,
         text: rawText,
@@ -378,9 +571,14 @@ async function sendToAdmin(text) {
     if (!adminId) return;
 
     try {
-        await bot.telegram.sendMessage(adminId, text);
+        await bot.telegram.sendMessage(adminId, text, { parse_mode: 'Markdown' });
     } catch (err) {
-        console.error('[Telegram] Failed to send to admin:', err.message);
+        // Fallback without markdown if parse fails
+        try {
+            await bot.telegram.sendMessage(adminId, text);
+        } catch (e) {
+            console.error('[Telegram] Failed to send to admin:', e.message);
+        }
     }
 }
 
@@ -398,37 +596,44 @@ async function sendImageToAdmin(imageBuffer, caption) {
 }
 
 /**
- * Send a daily poll to the Telegram channel.
+ * Send a daily poll to the Telegram channel asking what courses to show tomorrow.
+ * Stores pollState so we can read the winner the next morning.
  */
 async function sendDailyPoll() {
-    if (!bot) return;
+    if (!bot) throw new Error('Bot not initialized.');
 
     const channelId = process.env.TELEGRAM_CHANNEL_ID;
-    if (!channelId) return;
-
-    try {
-        await bot.telegram.sendPoll(
-            channelId,
-            'What courses do you want to see tomorrow? 🤔',
-            [
-                'Web Development',
-                'Python',
-                'AI / Machine Learning',
-                'Design',
-                'Business',
-                'Marketing',
-                'Office Productivity',
-                'Other',
-            ],
-            {
-                is_anonymous: true,
-                allows_multiple_answers: true,
-            }
-        );
-        console.log('[Telegram] Daily poll sent to channel.');
-    } catch (err) {
-        console.error('[Telegram] Failed to send poll:', err.message);
+    if (!channelId) {
+        throw new Error('TELEGRAM_CHANNEL_ID is not set in .env');
     }
+
+    // sendPoll throws on Telegram API errors — let the caller handle them
+    const sentPoll = await bot.telegram.sendPoll(
+        channelId,
+        '📚 ما نوع الكورسات اللي تبيها بكرة؟ 🤔\nWhat courses do you want to see tomorrow?',
+        POLL_OPTIONS,
+        {
+            is_anonymous: true,
+            allows_multiple_answers: false,
+        }
+    );
+
+    // Store poll metadata so we can correlate poll updates
+    pollState.messageId   = sentPoll.message_id;
+    pollState.chatId      = channelId;
+    pollState.options     = POLL_OPTIONS.slice(); // snapshot
+    pollState.voteCounts  = new Array(POLL_OPTIONS.length).fill(0);
+    pollState.winnerCategory = null;
+
+    console.log(`[Telegram] Daily poll sent to channel (message_id: ${sentPoll.message_id}).`);
+}
+
+/**
+ * Send a poll on-demand (e.g., after finishing review or after auto-post).
+ * Alias kept for clarity at call sites.
+ */
+async function sendPollAfterPosting() {
+    await sendDailyPoll();
 }
 
 /**
@@ -446,5 +651,8 @@ module.exports = {
     sendToAdmin,
     sendImageToAdmin,
     sendDailyPoll,
+    sendPollAfterPosting,
+    autoPostCourses,
+    getPollWinnerCategory,
     getBot,
 };
