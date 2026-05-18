@@ -94,6 +94,9 @@ Guidelines for BOTH sections:
 - Provide the enrollment link clearly at the end of each section (or once at the bottom).
 - Format as plain text suitable for WhatsApp/Telegram (ONLY use * for bold, no other markdown, no HTML, no hashtags).
 - Do NOT include any placeholder text.
+- At the very end of EACH section (both English and Arabic), you MUST append these exact channel links:
+  📱 Telegram: https://t.me/+cHifWbMnUNFmYjE0
+  🟢 WhatsApp: https://whatsapp.com/channel/0029Vay6zUG4SpkQ1CRZvw2s
 
 Course Details:
 - Title: ${course.title}
@@ -163,6 +166,9 @@ ${course.description ? course.description.substring(0, 200) + '...' : ''}
 
 👉 Enroll Now: ${course.udemyUrl}
 
+📱 Telegram: https://t.me/+cHifWbMnUNFmYjE0
+🟢 WhatsApp: https://whatsapp.com/channel/0029Vay6zUG4SpkQ1CRZvw2s
+
 ➖➖➖➖➖➖➖➖
 
 🎓 كورس مجاني الحق بسرعة! 🔥
@@ -177,7 +183,10 @@ ${course.description ? course.description.substring(0, 200) + '...' : ''}
 
 👉 رابط التسجيل: ${course.udemyUrl}
 
-ماتفوتش الفرصة! 🚀`;
+ماتفوتش الفرصة! 🚀
+
+📱 Telegram: https://t.me/+cHifWbMnUNFmYjE0
+🟢 WhatsApp: https://whatsapp.com/channel/0029Vay6zUG4SpkQ1CRZvw2s`;
 }
 
 module.exports = { initGemini, generatePost };
