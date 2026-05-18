@@ -44,6 +44,7 @@ CRITICAL REQUIREMENT: The output MUST be in two sections:
 Separate the two sections with this exact divider: ➖➖➖➖➖➖➖➖
 
 Guidelines for BOTH sections:
+- Keep the intro/greeting VERY SHORT (1-3 words max). Just get straight to the point (e.g. "Free Course!", "كورس مجاني!"). Do not write long greetings.
 - Be creative and conversational! Do not just spit out a rigid template.
 - Hook the reader immediately and highlight the value of the course.
 - Emphasize strongly that the course is 100% FREE for a LIMITED TIME (create urgency/FOMO).
