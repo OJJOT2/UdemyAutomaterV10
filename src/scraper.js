@@ -193,13 +193,18 @@ async function scrapeCourses(maxCourses, pagesToScrape = 1, category = null) {
     const postedSlugs = loadPostedSlugs();
     const results = [];
 
-    console.log(`[Scraper] Starting scrape. Max courses: ${limit}, Pages: ${pagesToScrape}, Category: ${category || 'All'}. Already posted: ${postedSlugs.size}`);
+    const categoryList = Array.isArray(category) ? category : [category || 'all'];
+
+    console.log(`[Scraper] Starting scrape. Max courses: ${limit}, Pages: ${pagesToScrape}, Sub-Categories: ${categoryList.length}. Already posted: ${postedSlugs.size}`);
 
     let allListings = [];
-    for (let p = 1; p <= pagesToScrape; p++) {
-        const listings = await fetchCourseList(p, category);
-        allListings = allListings.concat(listings);
-        await delay(1000);
+    for (const cat of categoryList) {
+        console.log(`[Scraper] Batch scraping category: ${cat}`);
+        for (let p = 1; p <= pagesToScrape; p++) {
+            const listings = await fetchCourseList(p, cat);
+            allListings = allListings.concat(listings);
+            await delay(1000);
+        }
     }
 
     for (const course of allListings) {

@@ -17,13 +17,21 @@ const pendingPosts = new Map();
 // In-memory store for admin conversation state
 const adminState = new Map();
 
-// 64 Categories from Python script
-const ALL_CATEGORIES = ['all','android', 'angularjs', 'bootstrap', 'c', 'cpp', 'csharp', 'css', 'data-structure', 'debug-test', 'development-tools', 'django', 'drupal', 'e-commerce', 'ethical-hacking', 'game-development', 'git', 'hardware', 'html', 'ios', 'java', 'javascript', 'jquery', 'json', 'machine-learning', 'matlab', 'mobile-development-other', 'mysql', 'nodejs', 'nosql', 'php', 'programming-other', 'python', 'r-programming', 'react-redux', 'robotics', 'ruby', 'seo', 'software', 'sql', 'system-programming', 'ux', 'web-development-other', 'wordpress', 'vue', '3d-model', 'after-effects', 'animation', 'graphic-design', 'photography', 'photoshop', 'premiere-pro', 'video-design', 'aws', 'hosting', 'linux', 'mac', 'network-security', 'windows', 'windows-server', 'academic', 'blockchain', 'business', 'certification', 'health-fitness', 'languages', 'lifestyle', 'marketing', 'music', 'office-productivity', 'personal-development', 'social-media'];
+// Merged categories from Python script
+const MERGED_CATEGORIES = {
+    '💻 Development': ['android', 'angularjs', 'bootstrap', 'c', 'cpp', 'csharp', 'css', 'data-structure', 'debug-test', 'development-tools', 'django', 'drupal', 'game-development', 'git', 'html', 'ios', 'java', 'javascript', 'jquery', 'json', 'machine-learning', 'matlab', 'mobile-development-other', 'nodejs', 'php', 'programming-other', 'python', 'r-programming', 'react-redux', 'robotics', 'ruby', 'software', 'system-programming', 'web-development-other', 'wordpress', 'vue'],
+    '🎨 Design & Video': ['3d-model', 'after-effects', 'animation', 'graphic-design', 'photography', 'photoshop', 'premiere-pro', 'video-design', 'ux'],
+    '⚙️ IT & Software': ['aws', 'hardware', 'hosting', 'linux', 'mac', 'network-security', 'windows', 'windows-server', 'mysql', 'nosql', 'sql', 'ethical-hacking'],
+    '📈 Business & Marketing': ['business', 'e-commerce', 'marketing', 'seo', 'social-media', 'office-productivity'],
+    '🧘 Lifestyle & Other': ['academic', 'blockchain', 'certification', 'health-fitness', 'languages', 'lifestyle', 'music', 'personal-development'],
+    '🌍 All': ['all']
+};
 
 function getCategoryKeyboard() {
+    const keys = Object.keys(MERGED_CATEGORIES);
     const res = [];
-    for (let i = 0; i < ALL_CATEGORIES.length; i += 3) {
-        res.push(ALL_CATEGORIES.slice(i, i + 3));
+    for (let i = 0; i < keys.length; i += 2) {
+        res.push(keys.slice(i, i + 2));
     }
     res.push(['Cancel']);
     return Markup.keyboard(res).resize();
@@ -114,16 +122,24 @@ function initTelegram(waModule) {
         }
 
         if (state.step === 'ASK_CATEGORY') {
-            const category = text.toLowerCase() === 'all' ? null : text;
+            let categoryList = null;
+            if (MERGED_CATEGORIES[text]) {
+                categoryList = MERGED_CATEGORIES[text];
+            } else if (text.toLowerCase() === 'all' || text === '🌍 All') {
+                categoryList = ['all'];
+            } else {
+                categoryList = [text.toLowerCase()]; // Fallback
+            }
+
             const pages = state.pages;
             
             adminState.delete(ctx.from.id);
-            ctx.reply(`🚀 Starting scrape for ${pages} page(s) in category: ${category || 'All'}...`, Markup.removeKeyboard());
+            ctx.reply(`🚀 Starting batch scrape for ${pages} page(s) across ${categoryList.length} sub-categories...`, Markup.removeKeyboard());
             
             // Trigger actual scrape in index.js
             if (bot._onManualScrape) {
                 try {
-                    await bot._onManualScrape(ctx, pages, category);
+                    await bot._onManualScrape(ctx, pages, categoryList);
                 } catch (err) {
                     ctx.reply(`❌ Scrape failed: ${err.message}`);
                 }
