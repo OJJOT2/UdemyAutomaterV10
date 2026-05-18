@@ -15,36 +15,47 @@ const whatsapp = require('./src/whatsapp');
 const scheduler = require('./src/scheduler');
 
 /**
- * Run the full scrape → generate → approve pipeline.
+ * Run the full scrape pipeline.
+ * @param {Object} ctx - Telegram context (if triggered manually)
+ * @param {number} pagesToScrape - Number of pages to scan
+ * @param {string} category - Specific category
  */
-async function runScrapePipeline() {
+async function runScrapePipeline(ctx = null, pagesToScrape = 1, category = null) {
     console.log('\n========================================');
-    console.log('[Pipeline] Starting scrape pipeline...');
+    console.log(`[Pipeline] Starting scrape pipeline... Pages: ${pagesToScrape}, Category: ${category || 'All'}`);
     console.log('========================================\n');
 
     try {
         // 1. Scrape new courses
-        const courses = await scraper.scrapeCourses();
+        const courses = await scraper.scrapeCourses(null, pagesToScrape, category);
 
         if (courses.length === 0) {
             console.log('[Pipeline] No new courses found.');
-            await telegram.sendToAdmin('ℹ️ Scrape completed — no new courses found.');
+            if (ctx) {
+                await ctx.reply('ℹ️ Scrape completed — no new courses found.');
+            } else {
+                await telegram.sendToAdmin('ℹ️ Scrape completed — no new courses found.');
+            }
             return;
         }
 
         console.log(`[Pipeline] Processing ${courses.length} new courses...`);
 
-        // 2. For each course, generate an AI post and send for admin approval
+        // 2. For each course, send raw preview for admin approval/generation
         for (const course of courses) {
             try {
-                // Generate AI post
-                const postText = await gemini.generatePost(course);
-
-                // Send to admin for approval
-                await telegram.sendForApproval(course, postText, (slug) => {
-                    // This callback runs when admin clicks "Approve"
-                    scraper.markAsPosted(slug);
-                });
+                // Send RAW preview to admin
+                await telegram.sendRawPreview(
+                    course,
+                    // onGenerateAI callback
+                    async (courseData) => {
+                        return await gemini.generatePost(courseData);
+                    },
+                    // onApprove callback
+                    (slug) => {
+                        scraper.markAsPosted(slug);
+                    }
+                );
 
                 // Small delay between processing courses
                 await new Promise((r) => setTimeout(r, 1000));
@@ -56,7 +67,11 @@ async function runScrapePipeline() {
         console.log('[Pipeline] All courses sent for admin approval.');
     } catch (err) {
         console.error('[Pipeline] Scrape pipeline failed:', err.message);
-        await telegram.sendToAdmin(`❌ Scrape pipeline error: ${err.message}`);
+        if (ctx) {
+            await ctx.reply(`❌ Scrape pipeline error: ${err.message}`);
+        } else {
+            await telegram.sendToAdmin(`❌ Scrape pipeline error: ${err.message}`);
+        }
     }
 }
 

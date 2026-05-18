@@ -14,6 +14,10 @@ let whatsappModule = null; // Injected at runtime to avoid circular deps
 // In-memory store for pending approval posts (slug -> post data)
 const pendingPosts = new Map();
 
+// In-memory store for admin conversation state
+// chat_id -> { step: 'ASK_PAGES' | 'ASK_CATEGORY', pages: number }
+const adminState = new Map();
+
 /**
  * Initialize and configure the Telegram bot.
  * @param {Object} waModule - Reference to the WhatsApp module (for broadcasting)
@@ -34,7 +38,7 @@ function initTelegram(waModule) {
         ctx.reply(
             '🤖 *Udemy Automater V10* is running!\n\n' +
             'Commands:\n' +
-            '/scrape — Manually trigger a scrape\n' +
+            '/scrape — Interactive manual scrape\n' +
             '/status — Check bot & WhatsApp status\n' +
             '/qr — Re-send WhatsApp QR code\n',
             { parse_mode: 'Markdown' }
@@ -43,15 +47,13 @@ function initTelegram(waModule) {
 
     bot.command('scrape', async (ctx) => {
         if (!isAdmin(ctx)) return;
-        ctx.reply('🔄 Starting manual scrape...');
-        // This will be wired up in index.js
-        if (bot._onManualScrape) {
-            try {
-                await bot._onManualScrape();
-            } catch (err) {
-                ctx.reply(`❌ Scrape failed: ${err.message}`);
-            }
-        }
+        
+        // Start conversation
+        adminState.set(ctx.from.id, { step: 'ASK_PAGES' });
+        
+        ctx.reply('🔄 Interactive Scrape Started.\n\nHow many pages do you want to scrape? (e.g., 1, 2, 3...)', 
+            Markup.keyboard(['1', '2', '3', 'Cancel']).oneTime().resize()
+        );
     });
 
     bot.command('status', (ctx) => {
@@ -76,49 +78,108 @@ function initTelegram(waModule) {
         }
     });
 
-    // --- Inline Button Handlers ---
+    // --- Text Handler for Conversation State ---
+    bot.on('text', async (ctx, next) => {
+        if (!isAdmin(ctx)) return next();
+        const state = adminState.get(ctx.from.id);
+        if (!state) return next();
 
-    bot.action(/approve_(.+)/, async (ctx) => {
-        const slug = ctx.match[1];
-        await ctx.answerCbQuery('Approving...');
+        const text = ctx.message.text.trim();
 
-        const postData = pendingPosts.get(slug);
-        if (!postData) {
-            await ctx.editMessageText('⚠️ Post data not found (may have expired). No action taken.');
+        if (text.toLowerCase() === 'cancel') {
+            adminState.delete(ctx.from.id);
+            return ctx.reply('❌ Scrape cancelled.', Markup.removeKeyboard());
+        }
+
+        if (state.step === 'ASK_PAGES') {
+            const pages = parseInt(text, 10);
+            if (isNaN(pages) || pages < 1 || pages > 10) {
+                return ctx.reply('⚠️ Please enter a valid number between 1 and 10.');
+            }
+            state.pages = pages;
+            state.step = 'ASK_CATEGORY';
+            
+            return ctx.reply(`✅ Pages set to ${pages}.\n\nWhich category? (e.g., business, development, or 'all')`,
+                Markup.keyboard(['all', 'development', 'business', 'it-and-software', 'Cancel']).oneTime().resize()
+            );
+        }
+
+        if (state.step === 'ASK_CATEGORY') {
+            const category = text.toLowerCase() === 'all' ? null : text;
+            const pages = state.pages;
+            
+            adminState.delete(ctx.from.id);
+            ctx.reply(`🚀 Starting scrape for ${pages} page(s) in category: ${category || 'All'}...`, Markup.removeKeyboard());
+            
+            // Trigger actual scrape in index.js
+            if (bot._onManualScrape) {
+                try {
+                    await bot._onManualScrape(ctx, pages, category);
+                } catch (err) {
+                    ctx.reply(`❌ Scrape failed: ${err.message}`);
+                }
+            }
             return;
         }
 
+        return next();
+    });
+
+    // --- Inline Button Handlers ---
+
+    // 1. Generate AI Post
+    bot.action(/generate_ai_(.+)/, async (ctx) => {
+        const slug = ctx.match[1];
+        const postData = pendingPosts.get(slug);
+        
+        if (!postData) {
+            return ctx.answerCbQuery('⚠️ Post data expired.', { show_alert: true });
+        }
+
+        await ctx.answerCbQuery('🪄 Generating AI post... please wait.');
+        
         try {
-            // 1. Post to Telegram Channel
-            await sendToChannel(postData.text);
-            console.log(`[Telegram] ✅ Posted to channel: ${slug}`);
+            // Call the callback to generate the post via Gemini
+            const aiText = await postData.onGenerateAI(postData.course);
+            postData.text = aiText; // Update the stored text to the AI version
+            
+            const keyboard = Markup.inlineKeyboard([
+                Markup.button.callback('✅ Approve & Post', `approve_${slug}`),
+                Markup.button.callback('❌ Reject', `reject_${slug}`),
+            ]);
 
-            // 2. Post to WhatsApp
-            if (whatsappModule) {
-                try {
-                    await whatsappModule.sendToChannel(postData.text);
-                    console.log(`[Telegram] ✅ Posted to WhatsApp: ${slug}`);
-                } catch (waErr) {
-                    console.error(`[Telegram] WhatsApp broadcast failed for ${slug}:`, waErr.message);
-                    await sendToAdmin(`⚠️ WhatsApp broadcast failed for "${postData.title}": ${waErr.message}`);
+            // Clean asterisks to HTML bold for Telegram
+            const formattedText = cleanMarkdownForTelegram(aiText);
+
+            await ctx.editMessageText(
+                `✨ *AI Post Generated*\n\n${formattedText}`,
+                {
+                    parse_mode: 'HTML',
+                    link_preview_options: { url: postData.course.udemyUrl, show_above_text: true },
+                    ...keyboard
                 }
-            }
-
-            // 3. Mark as posted
-            if (postData.onApprove) {
-                postData.onApprove(slug);
-            }
-
-            // 4. Update the admin message
-            await ctx.editMessageText(`✅ Posted!\n\n${postData.text}`);
-
-            pendingPosts.delete(slug);
+            );
         } catch (err) {
-            console.error(`[Telegram] Error broadcasting ${slug}:`, err.message);
-            await ctx.editMessageText(`❌ Broadcast failed: ${err.message}`);
+            console.error('[Telegram] AI Generation failed:', err);
+            await ctx.answerCbQuery('❌ AI Generation failed!', { show_alert: true });
         }
     });
 
+    // 2. Send Directly (Raw text)
+    bot.action(/send_direct_(.+)/, async (ctx) => {
+        const slug = ctx.match[1];
+        await ctx.answerCbQuery('Broadcasting raw text...');
+        await broadcastPost(ctx, slug);
+    });
+
+    // 3. Approve AI Post
+    bot.action(/approve_(.+)/, async (ctx) => {
+        const slug = ctx.match[1];
+        await ctx.answerCbQuery('Approving AI post...');
+        await broadcastPost(ctx, slug);
+    });
+
+    // 4. Reject
     bot.action(/reject_(.+)/, async (ctx) => {
         const slug = ctx.match[1];
         await ctx.answerCbQuery('Rejected.');
@@ -137,6 +198,52 @@ function initTelegram(waModule) {
 }
 
 /**
+ * Helper to broadcast the pending post to channels.
+ */
+async function broadcastPost(ctx, slug) {
+    const postData = pendingPosts.get(slug);
+    if (!postData) {
+        return ctx.editMessageText('⚠️ Post data not found (may have expired). No action taken.');
+    }
+
+    try {
+        // Formatted for Telegram
+        const telegramText = cleanMarkdownForTelegram(postData.text);
+        
+        // 1. Post to Telegram Channel
+        await sendToChannel(telegramText, postData.course.udemyUrl);
+        console.log(`[Telegram] ✅ Posted to channel: ${slug}`);
+
+        // 2. Post to WhatsApp (raw text with asterisks)
+        if (whatsappModule) {
+            try {
+                await whatsappModule.sendToChannel(postData.text);
+                console.log(`[Telegram] ✅ Posted to WhatsApp: ${slug}`);
+            } catch (waErr) {
+                console.error(`[Telegram] WhatsApp broadcast failed for ${slug}:`, waErr.message);
+                await sendToAdmin(`⚠️ WhatsApp broadcast failed for "${postData.course.title}": ${waErr.message}`);
+            }
+        }
+
+        // 3. Mark as posted
+        if (postData.onApprove) {
+            postData.onApprove(slug);
+        }
+
+        // 4. Update the admin message
+        await ctx.editMessageText(`✅ Posted successfully!\n\n${telegramText}`, {
+            parse_mode: 'HTML',
+            link_preview_options: { url: postData.course.udemyUrl, show_above_text: true }
+        });
+
+        pendingPosts.delete(slug);
+    } catch (err) {
+        console.error(`[Telegram] Error broadcasting ${slug}:`, err.message);
+        await ctx.editMessageText(`❌ Broadcast failed: ${err.message}`);
+    }
+}
+
+/**
  * Start the bot (long polling).
  */
 async function startBot() {
@@ -152,8 +259,6 @@ async function startBot() {
 
 /**
  * Check if the message sender is the admin.
- * @param {Object} ctx - Telegraf context
- * @returns {boolean}
  */
 function isAdmin(ctx) {
     const adminId = process.env.ADMIN_CHAT_ID;
@@ -161,58 +266,80 @@ function isAdmin(ctx) {
 }
 
 /**
- * Send an AI-generated post to the admin for approval via inline buttons.
+ * Clean simple *bold* markdown into <b>bold</b> HTML for Telegram.
+ * WhatsApp uses * so we keep it as is for WhatsApp.
+ */
+function cleanMarkdownForTelegram(text) {
+    // Escape HTML symbols first to prevent Telegram parse errors
+    let clean = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Convert *bold* to <b>bold</b>
+    clean = clean.replace(/\*(.*?)\*/g, '<b>$1</b>');
+    return clean;
+}
+
+/**
+ * Send a raw course preview to the admin for approval/generation.
  * @param {Object} course - Course data { title, slug, ... }
- * @param {string} postText - The AI-generated post text
+ * @param {Function} onGenerateAI - Callback to generate AI text
  * @param {Function} onApprove - Callback when approved (receives slug)
  */
-async function sendForApproval(course, postText, onApprove) {
+async function sendRawPreview(course, onGenerateAI, onApprove) {
     if (!bot) throw new Error('[Telegram] Bot not initialized.');
 
     const adminId = process.env.ADMIN_CHAT_ID;
     if (!adminId) throw new Error('[Telegram] ADMIN_CHAT_ID is not set.');
 
-    // Store post data for when the button is clicked
+    const rawText = `📚 *${course.title}*\n📂 Category: ${course.category}\n\n${course.description}\n\n👉 Link: ${course.udemyUrl}`;
+
+    // Store post data
     pendingPosts.set(course.slug, {
-        text: postText,
-        title: course.title,
+        course: course,
+        text: rawText,
+        onGenerateAI,
         onApprove,
     });
 
     const keyboard = Markup.inlineKeyboard([
-        Markup.button.callback('✅ Approve & Post', `approve_${course.slug}`),
-        Markup.button.callback('❌ Reject', `reject_${course.slug}`),
+        [Markup.button.callback('🪄 Generate AI Post', `generate_ai_${course.slug}`)],
+        [
+            Markup.button.callback('📤 Send Directly', `send_direct_${course.slug}`),
+            Markup.button.callback('❌ Reject', `reject_${course.slug}`)
+        ]
     ]);
+
+    const formattedText = cleanMarkdownForTelegram(rawText);
 
     await bot.telegram.sendMessage(
         adminId,
-        `📝 *New Course for Review*\n\n${postText}`,
+        `📝 *Raw Scraped Course*\n\n${formattedText}`,
         {
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
+            link_preview_options: { url: course.udemyUrl, show_above_text: true },
             ...keyboard,
         }
     );
 
-    console.log(`[Telegram] Sent for approval: ${course.title}`);
+    console.log(`[Telegram] Sent raw preview: ${course.title}`);
 }
 
 /**
  * Send a text message to the public Telegram channel.
- * @param {string} text
  */
-async function sendToChannel(text) {
+async function sendToChannel(text, url) {
     if (!bot) throw new Error('[Telegram] Bot not initialized.');
 
     const channelId = process.env.TELEGRAM_CHANNEL_ID;
     if (!channelId) throw new Error('[Telegram] TELEGRAM_CHANNEL_ID is not set.');
 
-    await bot.telegram.sendMessage(channelId, text);
+    await bot.telegram.sendMessage(channelId, text, {
+        parse_mode: 'HTML',
+        link_preview_options: { url: url, show_above_text: true }
+    });
     console.log('[Telegram] Message sent to channel.');
 }
 
 /**
  * Send a text message to the admin chat.
- * @param {string} text
  */
 async function sendToAdmin(text) {
     if (!bot) return;
@@ -228,8 +355,6 @@ async function sendToAdmin(text) {
 
 /**
  * Send an image buffer to the admin chat (used for WhatsApp QR codes).
- * @param {Buffer} imageBuffer - PNG image buffer
- * @param {string} caption - Image caption
  */
 async function sendImageToAdmin(imageBuffer, caption) {
     if (!bot) throw new Error('[Telegram] Bot not initialized.');
@@ -277,7 +402,6 @@ async function sendDailyPoll() {
 
 /**
  * Get the bot instance (for external use).
- * @returns {Telegraf}
  */
 function getBot() {
     return bot;
@@ -286,7 +410,7 @@ function getBot() {
 module.exports = {
     initTelegram,
     startBot,
-    sendForApproval,
+    sendRawPreview,
     sendToChannel,
     sendToAdmin,
     sendImageToAdmin,

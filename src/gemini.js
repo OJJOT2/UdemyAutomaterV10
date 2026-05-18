@@ -18,8 +18,8 @@ function initGemini() {
         throw new Error('[Gemini] GEMINI_API_KEY is not set in environment variables.');
     }
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    console.log('[Gemini] Initialized with model: gemini-1.5-flash');
+    model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    console.log('[Gemini] Initialized with model: gemini-2.5-flash');
 }
 
 /**
@@ -39,11 +39,11 @@ async function generatePost(course) {
 Write a short, engaging promotional post (UNDER 150 words) for the following free Udemy course. The post must:
 - Use relevant emojis throughout to make it eye-catching
 - Emphasize that the course is 100% FREE for a LIMITED TIME
-- Include the course title prominently
+- Include the course title prominently and MUST wrap it in asterisks to bold it (e.g. *Course Name*)
 - Mention the category briefly
 - Create urgency (limited time, grab it now, etc.)
 - End with the enrollment link
-- Be formatted as plain text suitable for both Telegram and WhatsApp (no markdown, no HTML)
+- Be formatted as plain text suitable for both Telegram and WhatsApp (no markdown other than * for bold, no HTML)
 - Do NOT include any placeholders — this must be ready to post immediately
 - Do NOT add hashtags
 
@@ -83,7 +83,7 @@ function generateFallbackPost(course) {
     console.log(`[Gemini] Using fallback template for "${course.title}"`);
     return `🎓 FREE Course Alert! 🔥
 
-📚 ${course.title}
+📚 *${course.title}*
 
 📂 Category: ${course.category}
 

@@ -54,42 +54,52 @@ function extractSlug(url) {
 /**
  * Fetch the listing page and extract course links + categories.
  * @param {number} [page=1] - Page number to scrape
+ * @param {string} [category] - Specific category slug (optional)
  * @returns {Promise<Array<{name: string, detailUrl: string, category: string}>>}
  */
-async function fetchCourseList(page = 1) {
-    const url = page === 1 ? ALL_COURSES_URL : `${ALL_COURSES_URL}/${page}`;
+async function fetchCourseList(page = 1, category = null) {
+    let baseUrl = ALL_COURSES_URL;
+    if (category && category.toLowerCase() !== 'all') {
+        baseUrl = `${BASE_URL}/category/${category.toLowerCase()}`;
+    }
+    const url = page === 1 ? baseUrl : `${baseUrl}/${page}`;
     console.log(`[Scraper] Fetching listing page: ${url}`);
 
-    const { data: html } = await axios.get(url, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-        },
-        timeout: 15000,
-    });
+    try {
+        const { data: html } = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+            },
+            timeout: 15000,
+        });
 
-    const $ = cheerio.load(html);
-    const courses = [];
+        const $ = cheerio.load(html);
+        const courses = [];
 
-    // Each course card has an a.card-header with the course name and link
-    $('a.card-header').each((_, el) => {
-        const name = $(el).text().trim();
-        const href = $(el).attr('href');
-        if (!name || !href) return;
+        // Each course card has an a.card-header with the course name and link
+        $('a.card-header').each((_, el) => {
+            const name = $(el).text().trim();
+            const href = $(el).attr('href');
+            if (!name || !href) return;
 
-        const detailUrl = href.startsWith('http') ? href : `${BASE_URL}${href}`;
+            const detailUrl = href.startsWith('http') ? href : `${BASE_URL}${href}`;
 
-        // Find the category link near this card
-        const card = $(el).closest('.card') || $(el).parent();
-        const categoryEl = card.find('a[href*="/category/"]').first();
-        const category = categoryEl.length ? categoryEl.text().trim() : 'General';
+            // Find the category link near this card
+            const card = $(el).closest('.card') || $(el).parent();
+            const categoryEl = card.find('a[href*="/category/"]').first();
+            const courseCategory = categoryEl.length ? categoryEl.text().trim() : 'General';
 
-        courses.push({ name, detailUrl, category });
-    });
+            courses.push({ name, detailUrl, category: courseCategory });
+        });
 
-    console.log(`[Scraper] Found ${courses.length} courses on page ${page}`);
-    return courses;
+        console.log(`[Scraper] Found ${courses.length} courses on page ${page}`);
+        return courses;
+    } catch (err) {
+        console.error(`[Scraper] Error fetching list page ${page}:`, err.message);
+        return [];
+    }
 }
 
 /**
@@ -192,20 +202,26 @@ async function fetchUdemyUrl(goUrl) {
 /**
  * Main scrape function — orchestrates the full pipeline.
  * Returns an array of new (not yet posted) course objects.
- * @param {number} [maxCourses] - Maximum courses to process
+ * @param {number} [maxCourses] - Maximum courses to process overall
+ * @param {number} [pagesToScrape=1] - Number of pages to scan
+ * @param {string} [category=null] - Specific category
  * @returns {Promise<Array<{title: string, category: string, description: string, udemyUrl: string, slug: string}>>}
  */
-async function scrapeCourses(maxCourses) {
+async function scrapeCourses(maxCourses, pagesToScrape = 1, category = null) {
     const limit = maxCourses || parseInt(process.env.MAX_COURSES_PER_RUN, 10) || 5;
     const postedSlugs = loadPostedSlugs();
     const results = [];
 
-    console.log(`[Scraper] Starting scrape. Max courses: ${limit}. Already posted: ${postedSlugs.size}`);
+    console.log(`[Scraper] Starting scrape. Max courses: ${limit}, Pages: ${pagesToScrape}, Category: ${category || 'All'}. Already posted: ${postedSlugs.size}`);
 
-    // Fetch first page of listings
-    const listings = await fetchCourseList(1);
+    let allListings = [];
+    for (let p = 1; p <= pagesToScrape; p++) {
+        const listings = await fetchCourseList(p, category);
+        allListings = allListings.concat(listings);
+        await delay(1000);
+    }
 
-    for (const course of listings) {
+    for (const course of allListings) {
         if (results.length >= limit) break;
 
         const slug = extractSlug(course.detailUrl);
