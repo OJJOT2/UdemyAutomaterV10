@@ -1,0 +1,23 @@
+{
+  "name": "udemy-automater-v10",
+  "version": "1.0.0",
+  "description": "Headless Node.js bot that scrapes free Udemy courses, generates AI posts, and broadcasts via Telegram & WhatsApp after admin approval.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": ["udemy", "telegram", "whatsapp", "automation", "gemini"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@whiskeysockets/baileys": "^6.7.16",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.7",
+    "node-cron": "^3.0.3",
+    "qrcode": "^1.5.4",
+    "telegraf": "^4.16.3"
+  }
+}

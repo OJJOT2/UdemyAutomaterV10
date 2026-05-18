@@ -1,0 +1,136 @@
+// ============================================
+// UdemyAutomaterV10 — Entry Point
+// ============================================
+// Boots all modules: Telegram bot, WhatsApp
+// Baileys socket, Gemini AI, Scraper, and
+// Cron Scheduler.
+// ============================================
+
+require('dotenv').config();
+
+const scraper = require('./src/scraper');
+const gemini = require('./src/gemini');
+const telegram = require('./src/telegram');
+const whatsapp = require('./src/whatsapp');
+const scheduler = require('./src/scheduler');
+
+/**
+ * Run the full scrape → generate → approve pipeline.
+ */
+async function runScrapePipeline() {
+    console.log('\n========================================');
+    console.log('[Pipeline] Starting scrape pipeline...');
+    console.log('========================================\n');
+
+    try {
+        // 1. Scrape new courses
+        const courses = await scraper.scrapeCourses();
+
+        if (courses.length === 0) {
+            console.log('[Pipeline] No new courses found.');
+            await telegram.sendToAdmin('ℹ️ Scrape completed — no new courses found.');
+            return;
+        }
+
+        console.log(`[Pipeline] Processing ${courses.length} new courses...`);
+
+        // 2. For each course, generate an AI post and send for admin approval
+        for (const course of courses) {
+            try {
+                // Generate AI post
+                const postText = await gemini.generatePost(course);
+
+                // Send to admin for approval
+                await telegram.sendForApproval(course, postText, (slug) => {
+                    // This callback runs when admin clicks "Approve"
+                    scraper.markAsPosted(slug);
+                });
+
+                // Small delay between processing courses
+                await new Promise((r) => setTimeout(r, 1000));
+            } catch (err) {
+                console.error(`[Pipeline] Error processing "${course.title}":`, err.message);
+            }
+        }
+
+        console.log('[Pipeline] All courses sent for admin approval.');
+    } catch (err) {
+        console.error('[Pipeline] Scrape pipeline failed:', err.message);
+        await telegram.sendToAdmin(`❌ Scrape pipeline error: ${err.message}`);
+    }
+}
+
+/**
+ * Main boot sequence.
+ */
+async function main() {
+    console.log('╔══════════════════════════════════════╗');
+    console.log('║     UdemyAutomaterV10  —  v1.0.0     ║');
+    console.log('╚══════════════════════════════════════╝');
+    console.log();
+
+    // Validate required env vars
+    const required = ['BOT_TOKEN', 'ADMIN_CHAT_ID', 'GEMINI_API_KEY'];
+    const missing = required.filter((key) => !process.env[key]);
+    if (missing.length > 0) {
+        console.error(`[Boot] Missing required environment variables: ${missing.join(', ')}`);
+        console.error('[Boot] Copy .env.example to .env and fill in the values.');
+        process.exit(1);
+    }
+
+    try {
+        // 1. Initialize Gemini AI
+        console.log('[Boot] Initializing Gemini AI...');
+        gemini.initGemini();
+
+        // 2. Initialize Telegram Bot (pass whatsapp module reference)
+        console.log('[Boot] Initializing Telegram Bot...');
+        telegram.initTelegram(whatsapp);
+
+        // Wire up manual /scrape command
+        const bot = telegram.getBot();
+        bot._onManualScrape = runScrapePipeline;
+
+        // 3. Start the Telegram Bot (begins polling)
+        await telegram.startBot();
+
+        // 4. Initialize WhatsApp (pass telegram module for QR delivery)
+        console.log('[Boot] Initializing WhatsApp...');
+        await whatsapp.initWhatsApp(telegram);
+
+        // 5. Initialize Cron Scheduler
+        console.log('[Boot] Initializing Scheduler...');
+        scheduler.initScheduler(runScrapePipeline, telegram.sendDailyPoll);
+
+        console.log();
+        console.log('========================================');
+        console.log('[Boot] ✅ All systems operational!');
+        console.log('========================================');
+        console.log();
+        console.log(`  🤖 Telegram Bot: Running`);
+        console.log(`  📱 WhatsApp:     Connecting...`);
+        console.log(`  🧠 Gemini AI:    Ready`);
+        console.log(`  ⏰ Scheduler:    ${process.env.SCRAPE_CRON || '0 9 * * *'} (scrape) | ${process.env.POLL_CRON || '0 20 * * *'} (poll)`);
+        console.log(`  🌍 Timezone:     ${process.env.TZ || 'Asia/Amman'}`);
+        console.log();
+
+        // Notify admin
+        await telegram.sendToAdmin(
+            '🚀 *UdemyAutomaterV10 is online!*\n\n' +
+            '🤖 Telegram Bot: ✅\n' +
+            '📱 WhatsApp: Connecting...\n' +
+            '🧠 Gemini AI: ✅\n' +
+            `⏰ Scrape: ${process.env.SCRAPE_CRON || '0 9 * * *'}\n` +
+            `⏰ Poll: ${process.env.POLL_CRON || '0 20 * * *'}\n\n` +
+            'Use /scrape to trigger manually.'
+        );
+
+    } catch (err) {
+        console.error('[Boot] Fatal error:', err.message);
+        console.error(err.stack);
+        process.exit(1);
+    }
+}
+
+// --- Run ---
+main();
