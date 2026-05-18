@@ -15,8 +15,19 @@ let whatsappModule = null; // Injected at runtime to avoid circular deps
 const pendingPosts = new Map();
 
 // In-memory store for admin conversation state
-// chat_id -> { step: 'ASK_PAGES' | 'ASK_CATEGORY', pages: number }
 const adminState = new Map();
+
+// 64 Categories from Python script
+const ALL_CATEGORIES = ['all','android', 'angularjs', 'bootstrap', 'c', 'cpp', 'csharp', 'css', 'data-structure', 'debug-test', 'development-tools', 'django', 'drupal', 'e-commerce', 'ethical-hacking', 'game-development', 'git', 'hardware', 'html', 'ios', 'java', 'javascript', 'jquery', 'json', 'machine-learning', 'matlab', 'mobile-development-other', 'mysql', 'nodejs', 'nosql', 'php', 'programming-other', 'python', 'r-programming', 'react-redux', 'robotics', 'ruby', 'seo', 'software', 'sql', 'system-programming', 'ux', 'web-development-other', 'wordpress', 'vue', '3d-model', 'after-effects', 'animation', 'graphic-design', 'photography', 'photoshop', 'premiere-pro', 'video-design', 'aws', 'hosting', 'linux', 'mac', 'network-security', 'windows', 'windows-server', 'academic', 'blockchain', 'business', 'certification', 'health-fitness', 'languages', 'lifestyle', 'marketing', 'music', 'office-productivity', 'personal-development', 'social-media'];
+
+function getCategoryKeyboard() {
+    const res = [];
+    for (let i = 0; i < ALL_CATEGORIES.length; i += 3) {
+        res.push(ALL_CATEGORIES.slice(i, i + 3));
+    }
+    res.push(['Cancel']);
+    return Markup.keyboard(res).resize();
+}
 
 /**
  * Initialize and configure the Telegram bot.
@@ -99,9 +110,7 @@ function initTelegram(waModule) {
             state.pages = pages;
             state.step = 'ASK_CATEGORY';
             
-            return ctx.reply(`✅ Pages set to ${pages}.\n\nWhich category? (e.g., business, development, or 'all')`,
-                Markup.keyboard(['all', 'development', 'business', 'it-and-software', 'Cancel']).oneTime().resize()
-            );
+            return ctx.reply(`✅ Pages set to ${pages}.\n\nWhich category?`, getCategoryKeyboard());
         }
 
         if (state.step === 'ASK_CATEGORY') {

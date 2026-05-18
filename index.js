@@ -3,22 +3,64 @@
 // ============================================
 // Boots all modules: Telegram bot, WhatsApp
 // Baileys socket, Gemini AI, Scraper, and
-// Cron Scheduler.
+// Cron Scheduler. Also runs Express Web UI.
 // ============================================
 
 require('dotenv').config();
 
+const express = require('express');
 const scraper = require('./src/scraper');
 const gemini = require('./src/gemini');
 const telegram = require('./src/telegram');
 const whatsapp = require('./src/whatsapp');
 const scheduler = require('./src/scheduler');
 
+// --- Web Dashboard & Log Interceptor ---
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+global.appLogs = [];
+const originalLog = console.log;
+const originalError = console.error;
+
+function captureLog(type, ...args) {
+    const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : a)).join(' ');
+    const timestamp = new Date().toLocaleString('en-US', { timeZone: process.env.TZ || 'Asia/Amman' });
+    global.appLogs.unshift(`[${timestamp}] [${type}] ${msg}`);
+    if (global.appLogs.length > 1000) global.appLogs.length = 1000; // keep last 1000 lines
+
+    if (type === 'ERROR') originalError.apply(console, args);
+    else originalLog.apply(console, args);
+}
+
+console.log = (...args) => captureLog('INFO', ...args);
+console.error = (...args) => captureLog('ERROR', ...args);
+
+app.get('/', (req, res) => {
+    res.send(`
+        <html>
+        <head>
+            <title>UdemyAutomater Logs</title>
+            <meta http-equiv="refresh" content="5">
+            <style>
+                body { font-family: monospace; background: #1e1e1e; color: #00ff00; padding: 20px; }
+                h2 { color: #fff; }
+                pre { white-space: pre-wrap; word-wrap: break-word; }
+                .error { color: #ff5555; }
+            </style>
+        </head>
+        <body>
+            <h2>🤖 UdemyAutomaterV10 - Live Logs</h2>
+            <p>Auto-refreshing every 5 seconds...</p>
+            <hr/>
+            <pre>${global.appLogs.map(l => l.includes('[ERROR]') ? `<span class="error">${l}</span>` : l).join('\n')}</pre>
+        </body>
+        </html>
+    `);
+});
+
 /**
  * Run the full scrape pipeline.
- * @param {Object} ctx - Telegram context (if triggered manually)
- * @param {number} pagesToScrape - Number of pages to scan
- * @param {string} category - Specific category
  */
 async function runScrapePipeline(ctx = null, pagesToScrape = 1, category = null) {
     console.log('\n========================================');
@@ -83,6 +125,11 @@ async function main() {
     console.log('║     UdemyAutomaterV10  —  v1.0.0     ║');
     console.log('╚══════════════════════════════════════╝');
     console.log();
+
+    // Start Web Server
+    app.listen(PORT, () => {
+        console.log(`[Boot] Web Dashboard running on port ${PORT}`);
+    });
 
     // Validate required env vars
     const required = ['BOT_TOKEN', 'ADMIN_CHAT_ID', 'GEMINI_API_KEY'];

@@ -1,8 +1,9 @@
 // ============================================
-// Scraper Module — discudemy.com -> udemy.com
+// Scraper Module — couponami.com -> udemy.com
 // ============================================
-// Extracts free Udemy courses from discudemy.com,
-// then scrapes Udemy directly for accurate metadata.
+// Extracts free Udemy courses from couponami.com,
+// and gracefully attempts to scrape Udemy directly 
+// for the star rating.
 // ============================================
 
 const axios = require('axios');
@@ -39,10 +40,15 @@ function savePostedSlugs(slugs) {
 }
 
 /**
- * Fetch the listing page and extract /go/ URLs to bypass detail pages.
- * @param {number} page - Page number
- * @param {string} category - Specific category
- * @returns {Promise<string[]>} - Array of /go/ URLs
+ * Extract the slug from a couponami course URL.
+ */
+function extractSlug(url) {
+    const parts = url.replace(/\/$/, '').split('/');
+    return parts[parts.length - 1];
+}
+
+/**
+ * Fetch the listing page and extract course links + categories.
  */
 async function fetchCourseList(page = 1, category = null) {
     let baseUrl = ALL_COURSES_URL;
@@ -61,25 +67,69 @@ async function fetchCourseList(page = 1, category = null) {
         });
 
         const $ = cheerio.load(html);
-        const goUrls = [];
+        const courses = [];
 
-        // In discudemy, section.card contains a.card-header
-        $('section.card').each((_, el) => {
-            const href = $(el).find('a.card-header').attr('href');
-            if (href) {
-                // Convert https://www.discudemy.com/Language/course-slug to /go/course-slug
-                const parts = href.replace(/\/$/, '').split('/');
-                const slug = parts[parts.length - 1];
-                const goUrl = `${BASE_URL}/go/${slug}`;
-                goUrls.push(goUrl);
-            }
+        // Each course card has an a.card-header
+        $('a.card-header').each((_, el) => {
+            const name = $(el).text().trim();
+            const href = $(el).attr('href');
+            if (!name || !href) return;
+
+            const detailUrl = href.startsWith('http') ? href : `${BASE_URL}${href}`;
+
+            // Find the category link near this card
+            const card = $(el).closest('.card') || $(el).parent();
+            const categoryEl = card.find('a[href*="/category/"]').first();
+            const courseCategory = categoryEl.length ? categoryEl.text().trim() : 'General';
+
+            courses.push({ name, detailUrl, category: courseCategory });
         });
 
-        console.log(`[Scraper] Found ${goUrls.length} courses on page ${page}`);
-        return goUrls;
+        console.log(`[Scraper] Found ${courses.length} courses on page ${page}`);
+        return courses;
     } catch (err) {
         console.error(`[Scraper] Error fetching list page ${page}:`, err.message);
         return [];
+    }
+}
+
+/**
+ * Fetch an individual course detail page to get full description + enrollment link.
+ */
+async function fetchCourseDetail(detailUrl) {
+    try {
+        console.log(`[Scraper] Fetching detail: ${detailUrl}`);
+        const { data: html } = await axios.get(detailUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            timeout: 15000,
+        });
+
+        const $ = cheerio.load(html);
+
+        // Extract description
+        let description = '';
+        const descSection = $('div.ui.segment, div.content, div.description, article').first();
+        if (descSection.length) {
+            description = descSection.find('p').map((_, p) => $(p).text().trim()).get().join(' ');
+        }
+        if (!description || description.length < 20) {
+            description = $('meta[name="description"]').attr('content') || '';
+        }
+
+        // Find the "Take Course" button — links to /go/slug
+        const goBtn = $('a.discBtn, a[href*="/go/"]').first();
+        const goUrl = goBtn.length ? goBtn.attr('href') : null;
+
+        if (!goUrl) return null;
+        const fullGoUrl = goUrl.startsWith('http') ? goUrl : `${BASE_URL}${goUrl}`;
+
+        return {
+            description: description.substring(0, 500),
+            goUrl: fullGoUrl,
+        };
+    } catch (err) {
+        console.error(`[Scraper] Error fetching detail ${detailUrl}:`, err.message);
+        return null;
     }
 }
 
@@ -90,26 +140,15 @@ async function fetchUdemyUrl(goUrl) {
     try {
         console.log(`[Scraper] Fetching enrollment URL: ${goUrl}`);
         const { data: html } = await axios.get(goUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            },
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
             timeout: 15000,
         });
 
         const $ = cheerio.load(html);
+        let udemyLink = $('a[href*="udemy.com"]').first().attr('href');
+        if (!udemyLink) udemyLink = $('a[href*="couponCode"], a[href*="enroll"]').first().attr('href');
 
-        // Find the udemy link inside div.ui.segment or generic anchor
-        let udemyLink = $('div.ui.segment a').attr('href');
-        if (!udemyLink) {
-            udemyLink = $('a[href*="udemy.com"]').attr('href');
-        }
-
-        if (!udemyLink) {
-            console.log(`[Scraper] No Udemy URL found on ${goUrl}`);
-            return null;
-        }
-
-        return udemyLink;
+        return udemyLink || null;
     } catch (err) {
         console.error(`[Scraper] Error fetching Udemy URL from ${goUrl}:`, err.message);
         return null;
@@ -117,13 +156,11 @@ async function fetchUdemyUrl(goUrl) {
 }
 
 /**
- * Fetch the exact metadata directly from Udemy.com.
- * @param {string} udemyUrl 
- * @returns {Promise<Object>}
+ * Fetch the exact metadata directly from Udemy.com (Graceful fallback)
  */
 async function extractUdemyData(udemyUrl) {
     try {
-        console.log(`[Scraper] Scraping Udemy directly: ${udemyUrl}`);
+        console.log(`[Scraper] Scraping Udemy directly for rating: ${udemyUrl}`);
         const { data: html } = await axios.get(udemyUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -134,32 +171,16 @@ async function extractUdemyData(udemyUrl) {
 
         const $ = cheerio.load(html);
 
-        let name = "Unknown Title";
-        const titleEl = $('h1.ud-heading-xxl, h1.clp-lead__title, h1.clp-lead__title--small').first();
-        if (titleEl.length) name = titleEl.text().trim();
-
-        let description = "No description available.";
-        const descEl = $('div.ud-text-lg, div.clp-lead__headline').first();
-        if (descEl.length) description = descEl.text().trim();
-
-        let category = "General";
-        const categoryLinks = $('div.course-landing-page__topic-menu a.ud-heading-sm, div.dark-background-inner-text-container a.ud-heading-sm');
-        if (categoryLinks.length > 1) {
-            category = $(categoryLinks[1]).text().trim();
-        } else if (categoryLinks.length === 1) {
-            category = $(categoryLinks[0]).text().trim();
-        }
-
-        let rate = "New";
+        let rate = "N/A";
         const rateEl = $('span.star-rating-module--rating-number--2-qA2, span[data-purpose="rating-number"]').first();
         if (rateEl.length) {
             rate = rateEl.text().trim();
         }
 
-        return { name, description, category, rate };
+        return { rate };
     } catch (err) {
-        console.error(`[Scraper] Error extracting Udemy data:`, err.message);
-        return null;
+        console.log(`[Scraper] Udemy 403 blocked direct fetch. Using Couponami fallback data.`);
+        return { rate: "N/A" };
     }
 }
 
@@ -173,47 +194,50 @@ async function scrapeCourses(maxCourses, pagesToScrape = 1, category = null) {
 
     console.log(`[Scraper] Starting scrape. Max courses: ${limit}, Pages: ${pagesToScrape}, Category: ${category || 'All'}. Already posted: ${postedSlugs.size}`);
 
-    let allGoUrls = [];
+    let allListings = [];
     for (let p = 1; p <= pagesToScrape; p++) {
-        const urls = await fetchCourseList(p, category);
-        allGoUrls = allGoUrls.concat(urls);
+        const listings = await fetchCourseList(p, category);
+        allListings = allListings.concat(listings);
         await delay(1000);
     }
 
-    for (const goUrl of allGoUrls) {
+    for (const course of allListings) {
         if (results.length >= limit) break;
 
-        const parts = goUrl.split('/');
-        const slug = parts[parts.length - 1];
+        const slug = extractSlug(course.detailUrl);
 
-        // Skip already posted courses
         if (postedSlugs.has(slug)) {
             console.log(`[Scraper] Skipping (already posted): ${slug}`);
             continue;
         }
 
-        await delay(1500); // Rate limiting
+        await delay(1500);
 
-        // Fetch the actual Udemy URL from the /go/ page
-        const udemyUrl = await fetchUdemyUrl(goUrl);
+        // Fetch description
+        const detail = await fetchCourseDetail(course.detailUrl);
+        if (!detail || !detail.goUrl) continue;
+
+        await delay(1500);
+
+        // Fetch actual Udemy URL
+        const udemyUrl = await fetchUdemyUrl(detail.goUrl);
         if (!udemyUrl) continue;
 
-        await delay(1500); // Rate limiting
+        await delay(1500);
 
-        // Fetch precise data from Udemy
+        // Attempt Udemy direct fetch for rating (with graceful failure)
         const udemyData = await extractUdemyData(udemyUrl);
-        if (!udemyData) continue;
 
         results.push({
-            title: udemyData.name,
-            category: udemyData.category,
-            description: udemyData.description,
+            title: course.name,
+            category: course.category,
+            description: detail.description,
             rate: udemyData.rate,
             udemyUrl,
             slug,
         });
 
-        console.log(`[Scraper] ✅ Scraped: ${udemyData.name}`);
+        console.log(`[Scraper] ✅ Scraped: ${course.name} [Rating: ${udemyData.rate}]`);
     }
 
     console.log(`[Scraper] Scrape complete. Found ${results.length} new courses.`);
