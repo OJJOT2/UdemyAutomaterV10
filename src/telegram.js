@@ -51,12 +51,12 @@ const POLL_OPTIONS = [
 
 // Maps poll option text → MERGED_CATEGORIES key
 const POLL_OPTION_MAP = {
-    '💻 Development':         '💻 Development',
-    '🎨 Design & Video':      '🎨 Design & Video',
-    '⚙️ IT & Software':       '⚙️ IT & Software',
-    '📈 Business & Marketing':'📈 Business & Marketing',
-    '🧘 Lifestyle & Other':   '🧘 Lifestyle & Other',
-    '🌍 All Categories':      '🌍 All',
+    '💻 Development': '💻 Development',
+    '🎨 Design & Video': '🎨 Design & Video',
+    '⚙️ IT & Software': '⚙️ IT & Software',
+    '📈 Business & Marketing': '📈 Business & Marketing',
+    '🧘 Lifestyle & Other': '🧘 Lifestyle & Other',
+    '🌍 All Categories': '🌍 All',
 };
 
 function getCategoryKeyboard() {
@@ -610,7 +610,7 @@ async function sendDailyPoll() {
     // sendPoll throws on Telegram API errors — let the caller handle them
     const sentPoll = await bot.telegram.sendPoll(
         channelId,
-        '📚 ما نوع الكورسات اللي تبيها بكرة؟ 🤔\nWhat courses do you want to see tomorrow?',
+        'What kind of courses do you want to see tomorrow? 📚🤔\nيا ترى إيه نوع الكورسات اللي حابب تشوفها بكرة؟',
         POLL_OPTIONS,
         {
             is_anonymous: true,
@@ -619,10 +619,10 @@ async function sendDailyPoll() {
     );
 
     // Store poll metadata so we can correlate poll updates
-    pollState.messageId   = sentPoll.message_id;
-    pollState.chatId      = channelId;
-    pollState.options     = POLL_OPTIONS.slice(); // snapshot
-    pollState.voteCounts  = new Array(POLL_OPTIONS.length).fill(0);
+    pollState.messageId = sentPoll.message_id;
+    pollState.chatId = channelId;
+    pollState.options = POLL_OPTIONS.slice(); // snapshot
+    pollState.voteCounts = new Array(POLL_OPTIONS.length).fill(0);
     pollState.winnerCategory = null;
 
     console.log(`[Telegram] Daily poll sent to channel (message_id: ${sentPoll.message_id}).`);
