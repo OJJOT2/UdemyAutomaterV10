@@ -279,7 +279,7 @@ function cleanMarkdownForTelegram(text) {
 
 /**
  * Send a raw course preview to the admin for approval/generation.
- * @param {Object} course - Course data { title, slug, ... }
+ * @param {Object} course - Course data { title, slug, rate, ... }
  * @param {Function} onGenerateAI - Callback to generate AI text
  * @param {Function} onApprove - Callback when approved (receives slug)
  */
@@ -289,7 +289,7 @@ async function sendRawPreview(course, onGenerateAI, onApprove) {
     const adminId = process.env.ADMIN_CHAT_ID;
     if (!adminId) throw new Error('[Telegram] ADMIN_CHAT_ID is not set.');
 
-    const rawText = `📚 *${course.title}*\n📂 Category: ${course.category}\n\n${course.description}\n\n👉 Link: ${course.udemyUrl}`;
+    const rawText = `📚 *${course.title}*\n📂 Category: ${course.category}\n⭐ Rating: ${course.rate || 'N/A'}\n\n${course.description}\n\n👉 Link: ${course.udemyUrl}`;
 
     // Store post data
     pendingPosts.set(course.slug, {

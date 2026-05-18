@@ -50,6 +50,7 @@ Write a short, engaging promotional post (UNDER 150 words) for the following fre
 Course Details:
 - Title: ${course.title}
 - Category: ${course.category}
+- Rating: ${course.rate || 'New'}
 - Description: ${course.description}
 - Enrollment Link: ${course.udemyUrl}
 
@@ -86,6 +87,7 @@ function generateFallbackPost(course) {
 📚 *${course.title}*
 
 📂 Category: ${course.category}
+⭐ Rating: ${course.rate || 'N/A'}
 
 ${course.description ? course.description.substring(0, 200) + '...' : ''}
 
