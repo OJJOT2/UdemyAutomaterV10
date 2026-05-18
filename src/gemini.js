@@ -109,7 +109,7 @@ Write the posts now:`;
 
     // Retry loop for API key rotation
     let attempts = 0;
-    const maxAttempts = apiKeys.length; // Try each key once before giving up
+    const maxAttempts = Math.min(4, apiKeys.length); // Try up to 4 times (or max keys)
 
     while (attempts < maxAttempts) {
         try {
@@ -127,16 +127,16 @@ Write the posts now:`;
             const errMsg = err.message || '';
             console.error(`[Gemini] Error generating post (Key ${currentKeyIndex + 1}):`, errMsg);
 
-            // Check if it's a rate limit (429) or quota exceeded (403/Quota)
-            const isExhausted = errMsg.includes('429') || errMsg.includes('403') || errMsg.includes('quota') || errMsg.includes('Too Many Requests');
+            // Check if it's a rate limit, quota exceeded, or invalid key
+            const shouldRotate = errMsg.includes('429') || errMsg.includes('403') || errMsg.includes('400') || errMsg.includes('quota') || errMsg.includes('Too Many Requests') || errMsg.includes('API_KEY_INVALID');
             
-            if (isExhausted && apiKeys.length > 1) {
-                console.log('[Gemini] ⚠️ API Key exhausted or rate-limited. Attempting rotation...');
+            if (shouldRotate && apiKeys.length > 1) {
+                console.log('[Gemini] ⚠️ API Key exhausted or invalid. Attempting rotation...');
                 rotateKey();
                 attempts++;
                 await delay(1000); // small backoff before trying next key
             } else {
-                // If it's not a rate limit error, or we only have 1 key, break out and use fallback
+                // If it's a completely different error, or only 1 key, break
                 break;
             }
         }
