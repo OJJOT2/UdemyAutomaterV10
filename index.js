@@ -134,12 +134,9 @@ async function runScrapePipeline(ctx = null, pagesToScrape = 1, category = null)
 
         console.log('[Pipeline] All courses sent for admin approval.');
 
-        // 3. After sending all previews → auto-send next-day poll
-        //    (Automated morning run only; manual scrapes skip this to avoid noise)
+        // 3. Inform admin to use /poll when finished
         if (!ctx) {
-            await telegram.sendToAdmin('📊 All courses sent for review. Poll will be sent to channel automatically.');
-            await telegram.sendPollAfterPosting();
-            console.log('[Pipeline] Next-day poll sent to channel after scrape.');
+            await telegram.sendToAdmin("📊 All courses sent for review. Use /poll when you finish posting to send tomorrow's poll.");
         }
 
     } catch (err) {

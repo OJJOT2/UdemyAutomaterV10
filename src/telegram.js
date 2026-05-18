@@ -7,7 +7,10 @@
 // ============================================
 
 const { Telegraf, Markup } = require('telegraf');
+const fs = require('fs');
+const path = require('path');
 
+const POLL_WINNER_FILE = path.join(__dirname, '..', 'data', 'poll_winner.json');
 let bot = null;
 let whatsappModule = null; // Injected at runtime to avoid circular deps
 
@@ -161,7 +164,11 @@ function initTelegram(waModule) {
     // Show current poll winner
     bot.command('winner', (ctx) => {
         if (!isAdmin(ctx)) return;
-        const winner = resolvePollWinner();
+        let winner = resolvePollWinner();
+        if (!winner) {
+            winner = loadPollWinner();
+        }
+        
         if (!winner) {
             return ctx.reply('🗳️ No poll data available yet. Send a poll first.');
         }
@@ -252,6 +259,7 @@ function initTelegram(waModule) {
         const winner = resolvePollWinner();
         if (winner) {
             pollState.winnerCategory = winner;
+            savePollWinner(winner);
             console.log(`[Telegram] Poll winner updated: ${winner}`);
         }
     });
@@ -443,6 +451,28 @@ async function autoPostCourses(courses, count, onApprove) {
 
 // ─── Poll Helpers ─────────────────────────────────────────────────────────────
 
+function savePollWinner(winnerStr) {
+    try {
+        const dir = path.dirname(POLL_WINNER_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(POLL_WINNER_FILE, JSON.stringify({ winner: winnerStr }));
+    } catch (e) {
+        console.error('[Telegram] Failed to save poll winner to disk:', e.message);
+    }
+}
+
+function loadPollWinner() {
+    try {
+        if (fs.existsSync(POLL_WINNER_FILE)) {
+            const data = JSON.parse(fs.readFileSync(POLL_WINNER_FILE, 'utf-8'));
+            return data.winner;
+        }
+    } catch (e) {
+        console.error('[Telegram] Failed to load poll winner from disk:', e.message);
+    }
+    return null;
+}
+
 /**
  * Resolve the winning MERGED_CATEGORIES key from the current pollState.
  * Returns null if no poll data is available.
@@ -468,7 +498,11 @@ function resolvePollWinner() {
  * Falls back to ['all'] if no poll data available.
  */
 function getPollWinnerCategory() {
-    const winner = pollState.winnerCategory || resolvePollWinner();
+    let winner = pollState.winnerCategory || resolvePollWinner();
+    if (!winner) {
+        winner = loadPollWinner(); // fallback to disk if bot restarted
+    }
+    
     if (!winner) {
         console.log('[Telegram] No poll winner found, defaulting to All categories.');
         return ['all'];
