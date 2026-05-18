@@ -194,6 +194,7 @@ async function handleDeadline() {
     await telegram.autoPostCourses(
         todayCourses,
         autoCount,
+        async (courseData) => gemini.generatePost(courseData),
         (slug) => scraper.markAsPosted(slug)
     );
 
@@ -215,8 +216,13 @@ async function main() {
     });
 
     // Validate required env vars
-    const required = ['BOT_TOKEN', 'ADMIN_CHAT_ID', 'GEMINI_API_KEY'];
+    const required = ['BOT_TOKEN', 'ADMIN_CHAT_ID'];
     const missing  = required.filter((key) => !process.env[key]);
+    
+    if (!process.env.GEMINI_API_KEYS && !process.env.GEMINI_API_KEY) {
+        missing.push('GEMINI_API_KEYS');
+    }
+
     if (missing.length > 0) {
         console.error(`[Boot] Missing required environment variables: ${missing.join(', ')}`);
         console.error('[Boot] Copy .env.example to .env and fill in the values.');

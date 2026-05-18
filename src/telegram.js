@@ -397,28 +397,24 @@ async function broadcastPost(ctx, shortId) {
  * Used by the 4 PM deadline job.
  * @param {Array} courses - Array of course objects from the scraper
  * @param {number} count - Max number to post
+ * @param {Function} onGenerateAI - Callback to generate AI text
  * @param {Function} onApprove - markAsPosted callback
  */
-async function autoPostCourses(courses, count, onApprove) {
+async function autoPostCourses(courses, count, onGenerateAI, onApprove) {
     if (!bot) throw new Error('[Telegram] Bot not initialized.');
     const tz = process.env.TZ || 'Africa/Cairo';
 
     console.log(`[Telegram] ⏰ Auto-posting up to ${count} courses (deadline reached).`);
-    await sendToAdmin(`⏰ *4 PM Deadline Reached!*\nNo posts were approved today.\nAuto-posting ${Math.min(count, courses.length)} courses now...`);
+    await sendToAdmin(`⏰ *4 PM Deadline Reached!*\nNo posts were approved today.\nAuto-posting ${Math.min(count, courses.length)} courses with AI now...`);
 
     let posted = 0;
     for (const course of courses) {
         if (posted >= count) break;
 
         try {
-            const rawText =
-                `📚 *${course.title}*\n` +
-                `📂 Category: ${course.category}\n` +
-                `⭐ Rating: ${course.rate || 'N/A'}\n\n` +
-                `${course.description}\n\n` +
-                `👉 Link: ${course.udemyUrl}`;
-
-            const telegramText = cleanMarkdownForTelegram(rawText);
+            // Generate the AI post
+            const aiText = await onGenerateAI(course);
+            const telegramText = cleanMarkdownForTelegram(aiText);
 
             // Post to channel
             await sendToChannel(telegramText, course.udemyUrl);
@@ -426,7 +422,7 @@ async function autoPostCourses(courses, count, onApprove) {
             // Post to WhatsApp
             if (whatsappModule) {
                 try {
-                    await whatsappModule.sendToChannel(rawText);
+                    await whatsappModule.sendToChannel(aiText);
                 } catch (waErr) {
                     console.error(`[Telegram] WhatsApp auto-post failed for "${course.title}":`, waErr.message);
                 }
@@ -435,11 +431,11 @@ async function autoPostCourses(courses, count, onApprove) {
             // Mark as posted
             if (onApprove) onApprove(course.slug);
 
-            console.log(`[Telegram] ✅ Auto-posted: ${course.title}`);
+            console.log(`[Telegram] ✅ Auto-posted (AI): ${course.title}`);
             posted++;
 
-            // Small delay between posts
-            await new Promise((r) => setTimeout(r, 2000));
+            // 5-second delay between AI generation/posts to avoid rate limits and keep stable
+            await new Promise((r) => setTimeout(r, 5000));
         } catch (err) {
             console.error(`[Telegram] Auto-post failed for "${course.title}":`, err.message);
         }

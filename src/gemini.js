@@ -3,24 +3,64 @@
 // ============================================
 // Uses Google Gemini API to generate engaging
 // promotional posts for free Udemy courses.
+// Supports API key rotation on exhaustion (429/403).
 // ============================================
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+let apiKeys = [];
+let currentKeyIndex = 0;
 let genAI = null;
 let model = null;
 
 /**
- * Initialize the Gemini client.
+ * Initialize the Gemini client with the current key from the pool.
  */
 function initGemini() {
-    if (!process.env.GEMINI_API_KEY) {
-        throw new Error('[Gemini] GEMINI_API_KEY is not set in environment variables.');
+    const keysRaw = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY; // fallback for backwards compatibility
+    if (!keysRaw) {
+        throw new Error('[Gemini] GEMINI_API_KEYS is not set in environment variables.');
     }
-    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-    console.log('[Gemini] Initialized with model: gemini-2.5-flash');
+    
+    // Parse comma-separated keys
+    apiKeys = keysRaw.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    
+    if (apiKeys.length === 0) {
+        throw new Error('[Gemini] No valid API keys found in GEMINI_API_KEYS.');
+    }
+
+    _setupClientForCurrentKey();
 }
+
+/**
+ * Internal helper to apply the current API key to the generative model.
+ */
+function _setupClientForCurrentKey() {
+    const activeKey = apiKeys[currentKeyIndex];
+    genAI = new GoogleGenerativeAI(activeKey);
+    model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    console.log(`[Gemini] Initialized with model: gemini-2.5-flash (Using Key ${currentKeyIndex + 1}/${apiKeys.length})`);
+}
+
+/**
+ * Rotate to the next API key in the pool. Returns false if all keys have been exhausted in one cycle.
+ */
+function rotateKey() {
+    if (apiKeys.length <= 1) {
+        console.log('[Gemini] Cannot rotate — only 1 key available in pool.');
+        return false;
+    }
+    
+    currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+    console.log(`[Gemini] 🔄 Rotating to next API key (Key ${currentKeyIndex + 1}/${apiKeys.length})...`);
+    _setupClientForCurrentKey();
+    return true;
+}
+
+/**
+ * Delay helper.
+ */
+const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
 /**
  * Generate an engaging promotional post for a free Udemy course.
@@ -62,34 +102,53 @@ Course Details:
 - Description: ${course.description}
 - Enrollment Link: ${course.udemyUrl}
 
-Write the post now:`;
+Write the posts now:`;
 
-    try {
-        const result = await model.generateContent(prompt);
-        const response = result.response;
-        const text = response.text();
+    // Retry loop for API key rotation
+    let attempts = 0;
+    const maxAttempts = apiKeys.length; // Try each key once before giving up
 
-        if (!text || text.length < 20) {
-            throw new Error('Generated post is too short or empty.');
+    while (attempts < maxAttempts) {
+        try {
+            const result = await model.generateContent(prompt);
+            const response = result.response;
+            const text = response.text();
+
+            if (!text || text.length < 20) {
+                throw new Error('Generated post is too short or empty.');
+            }
+
+            console.log(`[Gemini] ✅ Generated post for "${course.title}" (${text.length} chars)`);
+            return text.trim();
+        } catch (err) {
+            const errMsg = err.message || '';
+            console.error(`[Gemini] Error generating post (Key ${currentKeyIndex + 1}):`, errMsg);
+
+            // Check if it's a rate limit (429) or quota exceeded (403/Quota)
+            const isExhausted = errMsg.includes('429') || errMsg.includes('403') || errMsg.includes('quota') || errMsg.includes('Too Many Requests');
+            
+            if (isExhausted && apiKeys.length > 1) {
+                console.log('[Gemini] ⚠️ API Key exhausted or rate-limited. Attempting rotation...');
+                rotateKey();
+                attempts++;
+                await delay(1000); // small backoff before trying next key
+            } else {
+                // If it's not a rate limit error, or we only have 1 key, break out and use fallback
+                break;
+            }
         }
-
-        console.log(`[Gemini] Generated post for "${course.title}" (${text.length} chars)`);
-        return text.trim();
-    } catch (err) {
-        console.error(`[Gemini] Error generating post for "${course.title}":`, err.message);
-
-        // Fallback: generate a simple template post
-        return generateFallbackPost(course);
     }
+
+    console.log(`[Gemini] ❌ All generation attempts failed. Using fallback template for "${course.title}"`);
+    return generateFallbackPost(course);
 }
 
 /**
- * Fallback post template if Gemini API fails.
+ * Fallback post template if Gemini API fails entirely.
  * @param {Object} course
  * @returns {string}
  */
 function generateFallbackPost(course) {
-    console.log(`[Gemini] Using fallback template for "${course.title}"`);
     return `🎓 FREE Course Alert! 🔥
 
 📚 *${course.title}*
