@@ -78,23 +78,23 @@ async function generatePost(course) {
 
 Your task is to write a highly engaging, creative promotional post for the course provided below. 
 
-CRITICAL REQUIREMENT: The output MUST be in two sections:
-1. First section: A captivating English post.
-2. Second section: A natural, friendly, and persuasive Egyptian Arabic post (كلام مصري عامي كأنك بتكلم صحابك).
-Separate the two sections with this exact divider: ➖➖➖➖➖➖➖➖
+CRITICAL REQUIREMENT: The output MUST follow this exact structure as ONE cohesive post:
+1. "Free Course: *[Course Title]*" (You can add emojis before or after).
+2. A short, creative English promotional description of the course.
+3. A short, natural Egyptian Arabic promotional description of the course (كلام مصري عامي كأنك بتكلم صحابك).
+4. The exact links provided below.
 
-Guidelines for BOTH sections:
-- Keep the intro/greeting VERY SHORT (1-3 words max). Just get straight to the point (e.g. "Free Course!", "كورس مجاني!"). Do not write long greetings.
-- Be creative and conversational! Do not just spit out a rigid template.
-- Hook the reader immediately and highlight the value of the course.
+Guidelines:
+- Do NOT separate English and Arabic into two entirely different posts. Keep them together in one message.
+- Keep intros/greetings out of it. Get straight to the point (e.g., start with "Free Course:" as requested).
+- Be creative and conversational! Hook the reader immediately and highlight the value of the course.
 - Emphasize strongly that the course is 100% FREE for a LIMITED TIME (create urgency/FOMO).
-- Include the course title prominently and wrap it in asterisks so it bolds (e.g., *Course Name*).
 - Briefly mention the category.
 - Use relevant and fun emojis throughout to make the text pop.
-- Provide the enrollment link clearly at the end of each section (or once at the bottom).
 - Format as plain text suitable for WhatsApp/Telegram (ONLY use * for bold, no other markdown, no HTML, no hashtags).
 - Do NOT include any placeholder text.
-- At the very end of EACH section (both English and Arabic), you MUST append these exact channel links:
+- At the very bottom of the post, you MUST append these exact links:
+  👉 Enroll Now: ${course.udemyUrl}
   📱 Telegram: https://t.me/+cHifWbMnUNFmYjE0
   🟢 WhatsApp: https://whatsapp.com/channel/0029Vay6zUG4SpkQ1CRZvw2s
 
@@ -152,39 +152,17 @@ Write the posts now:`;
  * @returns {string}
  */
 function generateFallbackPost(course) {
-    return `🎓 FREE Course Alert! 🔥
+    return `🔥 Free Course: *${course.title}*
 
-📚 *${course.title}*
-
-📂 Category: ${course.category}
-⭐ Rating: ${course.rate || 'N/A'}
+📂 Category / القسم: ${course.category}
+⭐ Rating / التقييم: ${course.rate || 'N/A'}
 
 ${course.description ? course.description.substring(0, 200) + '...' : ''}
 
-🆓 This course is 100% FREE for a LIMITED TIME!
-⏰ Grab it before the coupon expires!
+🆓 This course is 100% FREE for a LIMITED TIME! Grab it before the coupon expires!
+🆓 الكورس ده مجاني 100% لفترة محدودة جداً! الحق سجل فيه قبل ما الكوبون يخلص! 🚀
 
 👉 Enroll Now: ${course.udemyUrl}
-
-📱 Telegram: https://t.me/+cHifWbMnUNFmYjE0
-🟢 WhatsApp: https://whatsapp.com/channel/0029Vay6zUG4SpkQ1CRZvw2s
-
-➖➖➖➖➖➖➖➖
-
-🎓 كورس مجاني الحق بسرعة! 🔥
-
-📚 *${course.title}*
-
-📂 القسم: ${course.category}
-⭐ التقييم: ${course.rate || 'N/A'}
-
-🆓 الكورس ده مجاني 100% لفترة محدودة جداً!
-⏰ الحق سجل فيه قبل ما الكوبون يخلص!
-
-👉 رابط التسجيل: ${course.udemyUrl}
-
-ماتفوتش الفرصة! 🚀
-
 📱 Telegram: https://t.me/+cHifWbMnUNFmYjE0
 🟢 WhatsApp: https://whatsapp.com/channel/0029Vay6zUG4SpkQ1CRZvw2s`;
 }
