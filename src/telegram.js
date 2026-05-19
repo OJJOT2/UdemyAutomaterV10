@@ -627,7 +627,8 @@ async function sendToAdmin(text) {
 }
 
 /**
- * Send an image buffer or URL to the admin chat (used for WhatsApp QR codes).
+ * Send an image (URL string or Buffer) to the admin chat (used for WhatsApp QR codes).
+ * Includes a 15-second timeout to prevent hanging.
  */
 async function sendImageToAdmin(imageSource, caption) {
     if (!bot) throw new Error('[Telegram] Bot not initialized.');
@@ -635,13 +636,21 @@ async function sendImageToAdmin(imageSource, caption) {
     const adminId = process.env.ADMIN_CHAT_ID;
     if (!adminId) throw new Error('[Telegram] ADMIN_CHAT_ID is not set.');
 
-    // If it's a buffer, we MUST provide a filename so Telegram API knows it's an image.
-    const photoPayload = typeof imageSource === 'string' 
-        ? imageSource 
+    const isUrl = typeof imageSource === 'string';
+    console.log(`[Telegram] Sending image to admin (type: ${isUrl ? 'URL' : 'Buffer'})...`);
+
+    const photoPayload = isUrl
+        ? imageSource
         : { source: imageSource, filename: 'qrcode.png' };
 
-    await bot.telegram.sendPhoto(adminId, photoPayload, { caption });
-    console.log('[Telegram] QR image sent to admin.');
+    // Wrap in a timeout to prevent infinite hangs
+    const sendPromise = bot.telegram.sendPhoto(adminId, photoPayload, { caption });
+    const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('sendPhoto timed out after 15 seconds')), 15000)
+    );
+
+    await Promise.race([sendPromise, timeoutPromise]);
+    console.log('[Telegram] ✅ Image sent to admin successfully.');
 }
 
 /**

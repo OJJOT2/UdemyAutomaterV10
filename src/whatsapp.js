@@ -65,28 +65,22 @@ async function connectToWhatsApp() {
                 console.log('[WhatsApp] QR code received. Sending to admin via Telegram...');
                 connectionStatus = '📱 Awaiting QR scan...';
                 try {
-                    let qrSource;
-                    try {
-                        qrSource = await QRCode.toBuffer(qr, {
-                            type: 'png',
-                            width: 512,
-                            margin: 2,
-                            color: { dark: '#000000', light: '#FFFFFF' },
-                        });
-                    } catch (bufferErr) {
-                        console.error('[WhatsApp] QRCode buffer generation failed, falling back to URL:', bufferErr.message);
-                        qrSource = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encodeURIComponent(qr)}`;
-                    }
+                    // Use a remote QR API — Telegram downloads the image itself.
+                    // This avoids Buffer/canvas issues that cause sendPhoto to hang on servers.
+                    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encodeURIComponent(qr)}`;
 
                     if (telegramModule) {
                         await telegramModule.sendImageToAdmin(
-                            qrSource,
+                            qrUrl,
                             '📱 Scan this QR code with WhatsApp to link this server.\n\n' +
                             '1. Open WhatsApp on your phone\n' +
                             '2. Go to Settings → Linked Devices\n' +
                             '3. Tap "Link a Device"\n' +
                             '4. Scan this QR code'
                         );
+                        console.log('[WhatsApp] ✅ QR code sent to admin successfully.');
+                    } else {
+                        console.error('[WhatsApp] Cannot send QR — Telegram module not available.');
                     }
                 } catch (err) {
                     console.error('[WhatsApp] Failed to send QR to Telegram:', err.message);
