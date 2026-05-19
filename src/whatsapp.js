@@ -253,11 +253,44 @@ function setTelegramModule(tgModule) {
     }
 }
 
+/**
+ * Resolve a WhatsApp invite link to its JID.
+ * Supports both group links (chat.whatsapp.com) and channel links (whatsapp.com/channel).
+ * @param {string} link - The invite link
+ * @returns {Promise<string>} - The resolved JID
+ */
+async function resolveInvite(link) {
+    if (!sock) throw new Error('WhatsApp is not connected.');
+
+    // Group invite: https://chat.whatsapp.com/INVITE_CODE
+    const groupMatch = link.match(/chat\.whatsapp\.com\/([A-Za-z0-9]+)/);
+    if (groupMatch) {
+        const inviteCode = groupMatch[1];
+        const info = await sock.groupGetInviteInfo(inviteCode);
+        return info.id; // e.g. 120363xxxx@g.us
+    }
+
+    // Channel invite: https://whatsapp.com/channel/INVITE_CODE
+    const channelMatch = link.match(/whatsapp\.com\/channel\/([A-Za-z0-9]+)/);
+    if (channelMatch) {
+        const inviteCode = channelMatch[1];
+        try {
+            const meta = await sock.newsletterMetadata('invite', inviteCode);
+            return meta.id; // e.g. 120363xxxx@newsletter
+        } catch (err) {
+            throw new Error(`Channel resolve failed: ${err.message}. You may need to subscribe to the channel first.`);
+        }
+    }
+
+    throw new Error('Unrecognized link format. Use a chat.whatsapp.com or whatsapp.com/channel link.');
+}
+
 module.exports = {
     initWhatsApp,
     sendToChannel,
     requestNewQR,
     setTelegramModule,
+    resolveInvite,
     getStatus,
     isConnected,
 };

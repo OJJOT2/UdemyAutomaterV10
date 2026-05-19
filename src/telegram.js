@@ -143,6 +143,38 @@ function initTelegram(waModule) {
         }
     });
 
+    // Resolve a WhatsApp invite link to its JID
+    bot.command('resolve', async (ctx) => {
+        if (!isAdmin(ctx)) return;
+        const link = ctx.message.text.replace('/resolve', '').trim();
+        if (!link) {
+            return ctx.reply(
+                '📎 Usage: /resolve <link>\n\n' +
+                'Examples:\n' +
+                '• /resolve https://chat.whatsapp.com/Fprt8onTshi53P5z9CyE4j\n' +
+                '• /resolve https://whatsapp.com/channel/0029Vay6zUG4SpkQ1CRZvw2s'
+            );
+        }
+        if (!whatsappModule || !whatsappModule.isConnected()) {
+            return ctx.reply('❌ WhatsApp is not connected. Use /qr first.');
+        }
+        try {
+            await ctx.reply('🔍 Resolving invite link...');
+            const jid = await whatsappModule.resolveInvite(link);
+            await ctx.reply(
+                `✅ Resolved JID:\n\n` +
+                `\`${jid}\`\n\n` +
+                `Add this to your .env file:\n` +
+                (jid.includes('@g.us')
+                    ? `WHATSAPP_GROUP_JID=${jid}`
+                    : `WHATSAPP_CHANNEL_JID=${jid}`),
+                { parse_mode: 'Markdown' }
+            );
+        } catch (err) {
+            ctx.reply(`❌ Failed to resolve: ${err.message}`);
+        }
+    });
+
     // Manual poll trigger
     bot.command('poll', async (ctx) => {
         if (!isAdmin(ctx)) return;
