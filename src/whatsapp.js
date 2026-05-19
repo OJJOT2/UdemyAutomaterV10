@@ -65,19 +65,22 @@ async function connectToWhatsApp() {
                 console.log('[WhatsApp] QR code received. Sending to admin via Telegram...');
                 connectionStatus = '📱 Awaiting QR scan...';
                 try {
-                    const qrBuffer = await QRCode.toBuffer(qr, {
-                        type: 'png',
-                        width: 512,
-                        margin: 2,
-                        color: {
-                            dark: '#000000',
-                            light: '#FFFFFF',
-                        },
-                    });
+                    let qrSource;
+                    try {
+                        qrSource = await QRCode.toBuffer(qr, {
+                            type: 'png',
+                            width: 512,
+                            margin: 2,
+                            color: { dark: '#000000', light: '#FFFFFF' },
+                        });
+                    } catch (bufferErr) {
+                        console.error('[WhatsApp] QRCode buffer generation failed, falling back to URL:', bufferErr.message);
+                        qrSource = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encodeURIComponent(qr)}`;
+                    }
 
                     if (telegramModule) {
                         await telegramModule.sendImageToAdmin(
-                            qrBuffer,
+                            qrSource,
                             '📱 Scan this QR code with WhatsApp to link this server.\n\n' +
                             '1. Open WhatsApp on your phone\n' +
                             '2. Go to Settings → Linked Devices\n' +

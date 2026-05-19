@@ -627,15 +627,20 @@ async function sendToAdmin(text) {
 }
 
 /**
- * Send an image buffer to the admin chat (used for WhatsApp QR codes).
+ * Send an image buffer or URL to the admin chat (used for WhatsApp QR codes).
  */
-async function sendImageToAdmin(imageBuffer, caption) {
+async function sendImageToAdmin(imageSource, caption) {
     if (!bot) throw new Error('[Telegram] Bot not initialized.');
 
     const adminId = process.env.ADMIN_CHAT_ID;
     if (!adminId) throw new Error('[Telegram] ADMIN_CHAT_ID is not set.');
 
-    await bot.telegram.sendPhoto(adminId, { source: imageBuffer }, { caption });
+    // If it's a buffer, we MUST provide a filename so Telegram API knows it's an image.
+    const photoPayload = typeof imageSource === 'string' 
+        ? imageSource 
+        : { source: imageSource, filename: 'qrcode.png' };
+
+    await bot.telegram.sendPhoto(adminId, photoPayload, { caption });
     console.log('[Telegram] QR image sent to admin.');
 }
 
