@@ -212,6 +212,14 @@ async function main() {
     console.log('╚══════════════════════════════════════╝');
     console.log();
 
+    // Ensure persistent data directory exists (survives deploys)
+    const fs = require('fs');
+    const dataDir = require('path').join(__dirname, 'data');
+    if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+        console.log('[Boot] Created data/ directory for persistent storage.');
+    }
+
     // Start Web Server
     app.listen(PORT, () => {
         console.log(`[Boot] Web Dashboard running on port ${PORT}`);
