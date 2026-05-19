@@ -21,10 +21,10 @@ function initGemini() {
     if (!keysRaw) {
         throw new Error('[Gemini] GEMINI_API_KEYS is not set in environment variables.');
     }
-    
+
     // Parse comma-separated keys
     apiKeys = keysRaw.split(',').map(k => k.trim()).filter(k => k.length > 0);
-    
+
     if (apiKeys.length === 0) {
         throw new Error('[Gemini] No valid API keys found in GEMINI_API_KEYS.');
     }
@@ -50,7 +50,7 @@ function rotateKey() {
         console.log('[Gemini] Cannot rotate — only 1 key available in pool.');
         return false;
     }
-    
+
     currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
     console.log(`[Gemini] 🔄 Rotating to next API key (Key ${currentKeyIndex + 1}/${apiKeys.length})...`);
     _setupClientForCurrentKey();
@@ -74,38 +74,50 @@ const delay = (ms) => new Promise(res => setTimeout(res, ms));
 async function generatePost(course) {
     if (!model) initGemini();
 
-    const prompt = `You are an expert social media copywriter for an educational Telegram and WhatsApp channel sharing free Udemy courses.
 
-Your task is to write a highly engaging, creative promotional post for the course provided below. 
+    const prompt = `
+You are a viral Telegram/WhatsApp copywriter for FREE Udemy courses.
 
-CRITICAL REQUIREMENT: The output MUST follow this exact structure as ONE cohesive post:
-1. "Free Course: *[Course Title]*" (You can add emojis before or after).
-2. A short, creative English promotional description of the course.
-3. A short, natural Egyptian Arabic promotional description of the course (كلام مصري عامي كأنك بتكلم صحابك).
-4. The exact links provided below.
+Write ONE engaging bilingual post using this structure:
 
-Guidelines:
-- Do NOT separate English and Arabic into two entirely different posts. Keep them together in one message.
-- Keep intros/greetings out of it. Get straight to the point (e.g., start with "Free Course:" as requested).
-- Be creative and conversational! Hook the reader immediately and highlight the value of the course.
-- Emphasize strongly that the course is 100% FREE for a LIMITED TIME (create urgency/FOMO).
-- Briefly mention the category.
-- Use relevant and fun emojis throughout to make the text pop.
-- Format as plain text suitable for WhatsApp/Telegram (ONLY use * for bold, no other markdown, no HTML, no hashtags).
-- Do NOT include any placeholder text.
-- At the very bottom of the post, you MUST append these exact links:
-  👉 Enroll Now: ${course.udemyUrl}
-  📱 Telegram: https://t.me/+cHifWbMnUNFmYjE0
-  🟢 WhatsApp: https://whatsapp.com/channel/0029Vay6zUG4SpkQ1CRZvw2s
+🎓 Free Course: *[Course Title]*
 
-Course Details:
-- Title: ${course.title}
-- Category: ${course.category}
-- Rating: ${course.rate || 'New'}
-- Description: ${course.description}
-- Enrollment Link: ${course.udemyUrl}
+- Short English promo:
+  - mention category
+  - what users learn
+  - rating if available
+  - emphasize FREE for limited time
 
-Write the posts now:`;
+- Short natural Egyptian Arabic promo:
+  - casual Egyptian slang only
+  - no cringe intros like "بص يا معلم" or "يا جدعان"
+  - create urgency naturally
+
+- Short CTA
+
+Then append EXACTLY:
+
+👉 Enroll Now: ${course.udemyUrl}
+📱 Telegram: https://t.me/+cHifWbMnUNFmYjE0
+🟢 WhatsApp: https://whatsapp.com/channel/0029Vay6zUG4SpkQ1CRZvw2s
+
+Rules:
+- One cohesive post only
+- No greetings
+- No hashtags
+- Use only *bold*
+- Use emojis naturally
+- Keep it short, catchy, human, and non-repetitive
+
+Course:
+Title: ${course.title}
+Category: ${course.category}
+Rating: ${course.rate || 'New'}
+Description: ${course.description}
+Link: ${course.udemyUrl}
+`;
+
+
 
     // Retry loop for API key rotation
     let attempts = 0;
@@ -129,7 +141,7 @@ Write the posts now:`;
 
             // Check if it's a rate limit, quota exceeded, or invalid key
             const shouldRotate = errMsg.includes('429') || errMsg.includes('403') || errMsg.includes('400') || errMsg.includes('quota') || errMsg.includes('Too Many Requests') || errMsg.includes('API_KEY_INVALID');
-            
+
             if (shouldRotate && apiKeys.length > 1) {
                 console.log('[Gemini] ⚠️ API Key exhausted or invalid. Attempting rotation...');
                 rotateKey();
