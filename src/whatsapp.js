@@ -243,10 +243,21 @@ function isConnected() {
     return connectionStatus === '🟢 Connected';
 }
 
+/**
+ * Inject the Telegram module reference (used by /qr to fix boot race condition).
+ */
+function setTelegramModule(tgModule) {
+    if (tgModule) {
+        telegramModule = tgModule;
+        console.log('[WhatsApp] Telegram module reference updated.');
+    }
+}
+
 module.exports = {
     initWhatsApp,
     sendToChannel,
     requestNewQR,
+    setTelegramModule,
     getStatus,
     isConnected,
 };

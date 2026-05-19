@@ -134,6 +134,8 @@ function initTelegram(waModule) {
     bot.command('qr', (ctx) => {
         if (!isAdmin(ctx)) return;
         if (whatsappModule) {
+            // Ensure whatsapp has the telegram reference (fixes boot race condition)
+            whatsappModule.setTelegramModule({ sendImageToAdmin, sendToAdmin });
             whatsappModule.requestNewQR();
             ctx.reply('📱 Requesting new WhatsApp QR code...');
         } else {
