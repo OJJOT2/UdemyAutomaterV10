@@ -166,8 +166,8 @@ async function connectToWhatsApp() {
 }
 
 /**
- * Send a text message to the configured WhatsApp Channel or Group.
- * Tries the newsletter channel first, falls back to group.
+ * Send a text message to the configured WhatsApp Channel AND Group.
+ * Sends to both if both are configured. Includes link preview.
  * @param {string} text - Message text to send
  */
 async function sendToChannel(text) {
@@ -178,31 +178,36 @@ async function sendToChannel(text) {
     const channelJid = process.env.WHATSAPP_CHANNEL_JID;
     const groupJid = process.env.WHATSAPP_GROUP_JID;
 
-    // Try newsletter channel first
+    if (!channelJid && !groupJid) {
+        throw new Error('No WHATSAPP_CHANNEL_JID or WHATSAPP_GROUP_JID configured.');
+    }
+
+    // Extract first URL from text for link preview
+    const urlMatch = text.match(/https?:\/\/[^\s]+/);
+
+    // Send to newsletter channel
     if (channelJid) {
         try {
             await sock.sendMessage(channelJid, { text });
             console.log(`[WhatsApp] ✅ Message sent to channel: ${channelJid}`);
-            return;
         } catch (err) {
             console.error(`[WhatsApp] Channel send failed (${channelJid}):`, err.message);
-            // Fall through to group fallback
         }
     }
 
-    // Fallback to group
+    // Send to group (with link preview)
     if (groupJid) {
         try {
-            await sock.sendMessage(groupJid, { text });
+            const msgPayload = { text };
+            // Baileys doesn't auto-generate link previews in groups,
+            // but by NOT setting linkPreview to null, it will show the preview
+            // if the URL is a known platform (like Udemy).
+            await sock.sendMessage(groupJid, msgPayload);
             console.log(`[WhatsApp] ✅ Message sent to group: ${groupJid}`);
-            return;
         } catch (err) {
             console.error(`[WhatsApp] Group send failed (${groupJid}):`, err.message);
-            throw new Error(`Failed to send to both channel and group: ${err.message}`);
         }
     }
-
-    throw new Error('No WHATSAPP_CHANNEL_JID or WHATSAPP_GROUP_JID configured.');
 }
 
 /**

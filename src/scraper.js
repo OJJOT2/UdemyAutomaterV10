@@ -207,53 +207,67 @@ async function scrapeCourses(maxCourses, pagesToScrape = 1, category = null, onC
         }
     }
 
-    for (const course of allListings) {
-        if (results.length >= limit) break;
-
+    // Filter out already-posted courses before processing
+    const newListings = allListings.filter(course => {
         const slug = extractSlug(course.detailUrl);
-
         if (postedSlugs.has(slug)) {
             console.log(`[Scraper] Skipping (already posted): ${slug}`);
-            continue;
+            return false;
         }
+        return true;
+    });
 
-        await delay(1500);
+    // Process courses in parallel batches of 5
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < newListings.length; i += BATCH_SIZE) {
+        if (results.length >= limit) break;
 
-        // Fetch description
-        const detail = await fetchCourseDetail(course.detailUrl);
-        if (!detail || !detail.goUrl) continue;
-
-        await delay(1500);
-
-        // Fetch actual Udemy URL
-        const udemyUrl = await fetchUdemyUrl(detail.goUrl);
-        if (!udemyUrl) continue;
-
-        await delay(1500);
-
-        // Attempt Udemy direct fetch for rating (with graceful failure)
-        const udemyData = await extractUdemyData(udemyUrl);
-
-        const finalCourseData = {
-            title: course.name,
-            category: course.category,
-            description: detail.description,
-            rate: udemyData.rate,
-            udemyUrl,
-            slug,
-        };
-
-        results.push(finalCourseData);
-        console.log(`[Scraper] ✅ Scraped: ${course.name} [Rating: ${udemyData.rate}]`);
-        
-        // Stream the course directly if a callback is provided
-        if (onCourseScraped) {
+        const batch = newListings.slice(i, i + BATCH_SIZE);
+        const batchPromises = batch.map(async (course) => {
             try {
-                await onCourseScraped(finalCourseData);
-            } catch (cbErr) {
-                console.error(`[Scraper] onCourseScraped callback error for ${course.name}:`, cbErr.message);
+                const detail = await fetchCourseDetail(course.detailUrl);
+                if (!detail || !detail.goUrl) return null;
+
+                const udemyUrl = await fetchUdemyUrl(detail.goUrl);
+                if (!udemyUrl) return null;
+
+                const udemyData = await extractUdemyData(udemyUrl);
+
+                return {
+                    title: course.name,
+                    category: course.category,
+                    description: detail.description,
+                    rate: udemyData.rate,
+                    udemyUrl,
+                    slug: extractSlug(course.detailUrl),
+                };
+            } catch (err) {
+                console.error(`[Scraper] Error processing ${course.name}:`, err.message);
+                return null;
+            }
+        });
+
+        const batchResults = await Promise.all(batchPromises);
+
+        for (const courseData of batchResults) {
+            if (!courseData) continue;
+            if (results.length >= limit) break;
+
+            results.push(courseData);
+            console.log(`[Scraper] ✅ Scraped: ${courseData.title} [Rating: ${courseData.rate}]`);
+
+            // Stream the course directly if a callback is provided
+            if (onCourseScraped) {
+                try {
+                    await onCourseScraped(courseData);
+                } catch (cbErr) {
+                    console.error(`[Scraper] onCourseScraped callback error for ${courseData.title}:`, cbErr.message);
+                }
             }
         }
+
+        // Small delay between batches to be polite to the server
+        await delay(1000);
     }
 
     console.log(`[Scraper] Scrape complete. Found ${results.length} new courses.`);
