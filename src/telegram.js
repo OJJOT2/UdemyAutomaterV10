@@ -386,41 +386,36 @@ async function broadcastPost(ctx, shortId) {
         const telegramText = cleanMarkdownForTelegram(postData.text);
         const originalSlug = postData.course.slug;
 
-        // 1. Post to Telegram Channel
+        // 1. Delete from pending immediately to prevent double-clicks
+        pendingPosts.delete(shortId);
+
+        // 2. Post to Telegram Channel
         await sendToChannel(telegramText, postData.course.udemyUrl);
         console.log(`[Telegram] ✅ Posted to channel: ${originalSlug}`);
 
-        // 2. Post to WhatsApp
-        if (whatsappModule) {
-            try {
-                await whatsappModule.sendToChannel(postData.text);
-                console.log(`[Telegram] ✅ Posted to WhatsApp: ${originalSlug}`);
-            } catch (waErr) {
-                console.error(`[Telegram] WhatsApp broadcast failed for ${originalSlug}:`, waErr.message);
-                await sendToAdmin(`⚠️ WhatsApp broadcast failed for "${postData.course.title}": ${waErr.message}`);
-            }
-        }
-
-        // 3. Mark as posted
-        if (postData.onApprove) {
-            postData.onApprove(originalSlug);
-        }
-
-        // 4. Notify index.js that a post was approved (for deadline counter)
-        if (bot._onPostApproved) {
-            bot._onPostApproved();
-        }
-
-        // 5. Update the admin message
+        // 3. Update the admin message UI INSTANTLY so it feels snappy
         await ctx.editMessageText(`✅ Posted successfully!\n\n${telegramText}`, {
             parse_mode: 'HTML',
             link_preview_options: { url: postData.course.udemyUrl, show_above_text: true }
         });
 
-        pendingPosts.delete(shortId);
+        // 4. Mark as posted & track approved count
+        if (postData.onApprove) postData.onApprove(originalSlug);
+        if (bot._onPostApproved) bot._onPostApproved();
+
+        // 5. Post to WhatsApp in the background (Baileys link preview generation can be very slow)
+        if (whatsappModule) {
+            whatsappModule.sendToChannel(postData.text).then(() => {
+                console.log(`[Telegram] ✅ Posted to WhatsApp: ${originalSlug}`);
+            }).catch(waErr => {
+                console.error(`[Telegram] WhatsApp broadcast failed for ${originalSlug}:`, waErr.message);
+                sendToAdmin(`⚠️ WhatsApp broadcast failed for "${postData.course.title}": ${waErr.message}`).catch(() => {});
+            });
+        }
+
     } catch (err) {
         console.error(`[Telegram] Error broadcasting ${shortId}:`, err.message);
-        await ctx.editMessageText(`❌ Broadcast failed: ${err.message}`);
+        await ctx.editMessageText(`❌ Broadcast failed: ${err.message}`).catch(() => {});
     }
 }
 
